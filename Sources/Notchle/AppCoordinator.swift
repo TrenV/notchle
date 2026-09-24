@@ -102,6 +102,7 @@ final class AppCoordinator {
                     self.send(.loaded(listing))
                 } catch {
                     guard !Task.isCancelled else { return }
+                    ErrorLog.write("load", error)
                     self.send(.loadFailed(message: Self.describe(error)))
                 }
             }
@@ -116,6 +117,7 @@ final class AppCoordinator {
                     // Superseded by a guess, a skip or a new snippet.
                 } catch {
                     guard !Task.isCancelled else { return }
+                    ErrorLog.write("playback", error)
                     self.send(.playbackFailed(message: Self.describe(error)))
                 }
             }
@@ -284,5 +286,19 @@ final class AppCoordinator {
         default:
             return error.localizedDescription
         }
+    }
+}
+
+/// Appends every load/playback error, raw and as shown, to ~/Library/Logs/Notchle.log, so a
+/// failure can be diagnosed after the fact (the notch only shows the friendly message).
+@MainActor
+enum ErrorLog {
+    static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Notchle.log")
+
+    static func write(_ context: String, _ error: Error) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [\(context)] \(AppCoordinator.describe(error)) | raw: \(String(reflecting: error))\n"
+        let data = Data(line.utf8)
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(data); try? h.close() }
+        else { try? data.write(to: url) }
     }
 }
