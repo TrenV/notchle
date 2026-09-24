@@ -26,6 +26,8 @@ public enum UISnapshots {
         var trackIndex = 6
         /// Tests render their own state.
         var state: GameState?
+        /// How long the phase has been on (drives the collapsed pill's brief flashes).
+        var secondsInPhase: Double = 0.3
     }
 
     static var scenarios: [Scenario] {
@@ -57,6 +59,20 @@ public enum UISnapshots {
             Scenario(name: "22-guessing-two-artists", phase: .guessing(tierIndex: 0), title: "Northbound", trackIndex: 5),
             Scenario(name: "23-wrong-two-artists", phase: .wrong(tierIndex: 1, verdict: Verdict(titleCorrect: true, artistCorrect: false)),
                      title: "Northbound", artist: "Tove Ahlberg", trackIndex: 5),
+            // Collapsed pill states (auto-close: the notch stays small unless hovered).
+            Scenario(name: "24-collapsed-loading", phase: .loading, expanded: false),
+            Scenario(name: "25-collapsed-snippet", phase: .playingSnippet(tierIndex: 1), expanded: false, snippetElapsed: 6),
+            Scenario(name: "26-collapsed-guessing", phase: .guessing(tierIndex: 0), expanded: false),
+            Scenario(name: "27-collapsed-wrong", phase: .wrong(tierIndex: 0, verdict: wrongVerdict), expanded: false),
+            Scenario(name: "28-collapsed-correct-flash-confetti", phase: .correct(tierIndex: 0), expanded: false,
+                     confetti: true, tall: true),
+            Scenario(name: "29-collapsed-correct-after-flash", phase: .correct(tierIndex: 0), expanded: false, secondsInPhase: 3),
+            Scenario(name: "30-collapsed-revealed", phase: .revealed(verdict: nil), expanded: false),
+            Scenario(name: "31-collapsed-set-complete-flash", phase: .setComplete(correctCount: 20), expanded: false),
+            Scenario(name: "32-collapsed-set-failed-flash", phase: .setFailed(correctCount: 14), expanded: false),
+            Scenario(name: "33-collapsed-set-failed-later", phase: .setFailed(correctCount: 14), expanded: false, secondsInPhase: 6),
+            Scenario(name: "34-collapsed-error", phase: .error(message: "x"), expanded: false),
+            Scenario(name: "35-pill-collapsed-guessing", phase: .guessing(tierIndex: 0), expanded: false, hasNotch: false),
             Scenario(name: "21-pill-guessing", phase: .guessing(tierIndex: 1), hasNotch: false, title: "Glass"),
         ]
     }
@@ -112,12 +128,14 @@ public enum UISnapshots {
         ui.showingSettings = sc.settings
         ui.reduceMotionOverride = sc.reduceMotion
         ui.snippetStart = Date().addingTimeInterval(-sc.snippetElapsed)
+        ui.phaseStartedAt = Date().addingTimeInterval(-sc.secondsInPhase)
 
         let notchSize = NotchGeometry.fallbackNotchSize
         let geometry = NotchGeometry(
             hardwareNotch: sc.hasNotch ? CGRect(origin: .zero, size: notchSize) : nil,
             notchSize: notchSize, centerX: NotchMetrics.panelSize.width / 2, anchorTop: NotchMetrics.panelSize.height)
-        let height: CGFloat = sc.tall ? NotchMetrics.panelSize.height : NotchMetrics.expandedSize.height + 60
+        let height: CGFloat = sc.tall ? NotchMetrics.panelSize.height
+            : (sc.expanded ? NotchMetrics.expandedSize.height + 60 : 96)
         let size = CGSize(width: NotchMetrics.panelSize.width, height: height)
         let root = ZStack(alignment: .top) {
             MockDesktop(hasNotch: sc.hasNotch, notchSize: notchSize)

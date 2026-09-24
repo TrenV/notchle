@@ -37,8 +37,15 @@ public final class NotchUIState {
     /// Turns the URL field's text into a source. The demo harness swaps this out while the real
     /// parser is still a stub.
     @ObservationIgnored public var parseSource: (String) -> SourceRef? = { SourceRef(string: $0) }
-    /// Called when the UI wants the panel to take the keyboard (new input phase).
-    @ObservationIgnored public var onWantsKeyboard: () -> Void = {}
+
+    /// When the mouse left the expanded shape; nil while it is inside (or nothing is pending).
+    public private(set) var mouseLeftAt: Date?
+    /// Last key press that reached the panel.
+    public private(set) var lastKeyAt: Date?
+    /// When the current phase began; drives the collapsed pill's brief flashes.
+    public internal(set) var phaseStartedAt = Date()
+    /// Bumped when a flash ends so the collapsed pill redraws.
+    public private(set) var indicatorRefresh = 0
 
     public init(model: NotchViewModel) {
         self.model = model
@@ -69,8 +76,22 @@ public final class NotchUIState {
         let phaseChanged = old?.phase != new.phase
         if phaseChanged {
             urlMessage = nil
-            if NotchUIRules.needsInput(new.phase) { isExpanded = true }
+            // No auto-expand: the notch opens only on hover or a click.
+            phaseStartedAt = now
+            let flash = NotchUIRules.flashDuration(new.phase)
+            if flash > 0 {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(flash + 0.05))
+                    self?.indicatorRefresh &+= 1
+                }
+            }
             if case .playingSnippet = new.phase { snippetStart = now }
+            // A field that is gone with the old phase no longer holds focus (so no longer "typing").
+            switch focusedField {
+            case .title?, .artist?: if !NotchUIRules.showsGuessFields(new.phase) { focusedField = nil }
+            case .url?: if !NotchUIRules.showsURLField(new.phase) { focusedField = nil }
+            case nil: break
+            }
             switch NotchUIRules.fieldTransition(from: old?.phase, to: new.phase) {
             case .none: break
             case .clearAndFocusTitle:
@@ -82,7 +103,6 @@ public final class NotchUIState {
             case .focusURL:
                 requestFocus(.url)
             }
-            if isExpanded, NotchUIRules.wantsKeyboard(new.phase) { onWantsKeyboard() }
         }
         if let old, new.celebrationCount > old.celebrationCount {
             celebrationSeed &+= 0x9E37_79B9_7F4A_7C15
@@ -95,16 +115,75 @@ public final class NotchUIState {
         }
     }
 
-    // MARK: Hover
+    // MARK: Hover, click, typing → expand / auto-collapse
 
-    public func hoverChanged(_ inside: Bool) {
+    public func hoverChanged(_ inside: Bool, now: Date = Date()) {
         guard inside != isHovering else { return }
         isHovering = inside
         if inside {
+            mouseLeftAt = nil          // re-entering cancels a pending collapse
             isExpanded = true
-        } else if NotchUIRules.collapsesOnHoverEnd(phase, hasTypedGuess: hasTypedGuess), !showingSettings {
-            isExpanded = false
+        } else if isExpanded {
+            mouseLeftAt = now          // collapse after the grace period, unless typing
         }
+    }
+
+    /// A click on the shape (also covers a hover the monitors missed).
+    public func clicked() {
+        mouseLeftAt = nil
+        isExpanded = true
+    }
+
+    /// Every key press that reaches the (key) panel.
+    public func noteKeyActivity(now: Date = Date()) {
+        lastKeyAt = now
+    }
+
+    /// Opens the collapsed panel because the player started typing into it.
+    public func expandForTyping(now: Date = Date()) {
+        lastKeyAt = now
+        isExpanded = true
+        if !isHovering { mouseLeftAt = now }
+        requestFocus(requestedFocus ?? (NotchUIRules.showsURLField(phase) ? .url : .title))
+    }
+
+    public var focusedText: String {
+        switch focusedField {
+        case .url: urlText
+        case .title: titleText
+        case .artist: artistText
+        case nil: ""
+        }
+    }
+
+    public func isTyping(now: Date = Date()) -> Bool {
+        NotchUIRules.isTyping(focused: focusedField, focusedText: focusedText, lastKeyAt: lastKeyAt, now: now)
+    }
+
+    /// A collapse is waiting on the grace period or on typing to stop.
+    public var autoCollapsePending: Bool { isExpanded && mouseLeftAt != nil }
+
+    /// Call periodically while `autoCollapsePending`. Returns true when it collapsed.
+    @discardableResult
+    public func evaluateAutoCollapse(now: Date = Date()) -> Bool {
+        guard isExpanded else { mouseLeftAt = nil; return false }
+        guard NotchUIRules.shouldAutoCollapse(expanded: isExpanded, mouseLeftAt: mouseLeftAt,
+                                              typing: isTyping(now: now), now: now) else { return false }
+        collapse()
+        return true
+    }
+
+    public func collapse() {
+        isExpanded = false
+        showingSettings = false
+        mouseLeftAt = nil
+        focusedField = nil
+    }
+
+    /// The collapsed pill for the current state.
+    public func collapsedIndicator(now: Date = Date()) -> NotchUIRules.CollapsedIndicator {
+        _ = indicatorRefresh
+        return NotchUIRules.collapsedIndicator(model.state, secondsInPhase: now.timeIntervalSince(phaseStartedAt))
     }
 
     // MARK: Intents
@@ -115,8 +194,7 @@ public final class NotchUIState {
         case .load: load()
         case .send(let action): model.send(action)
         case .collapse:
-            showingSettings = false
-            isExpanded = false
+            collapse()
             requestFocus(nil)
         case .closeSettings: showingSettings = false
         case .focus(let field): requestFocus(field)
@@ -134,6 +212,7 @@ public final class NotchUIState {
             return
         }
         urlMessage = nil
+        lastKeyAt = nil
         model.send(.load(ref))
     }
 
@@ -142,6 +221,7 @@ public final class NotchUIState {
         let artist = artistText.trimmingCharacters(in: .whitespaces)
         if title.isEmpty { requestFocus(.title); return }
         if artist.isEmpty { requestFocus(.artist); return }
+        lastKeyAt = nil                // submitted: no longer typing
         model.send(.submit(Guess(title: title, artist: artist)))
     }
 

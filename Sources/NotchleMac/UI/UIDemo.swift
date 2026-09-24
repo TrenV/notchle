@@ -56,6 +56,7 @@ public final class UIDemo {
         controller.show()
         log("demo started (auto: \(auto), keyboard: \(controller.keyboardStrategy))")
         observeTyping()
+        observeExpansion()
         if startInGuess { game.send(.load(SourceRef(kind: .playlist, id: "demo"))) }
         if auto { runScript() }
         if let quitAfter {
@@ -76,6 +77,20 @@ public final class UIDemo {
                 guard let self else { return }
                 self.controller.log("typed: url=\"\(ui.urlText)\" title=\"\(ui.titleText)\" artist=\"\(ui.artistText)\"")
                 self.observeTyping()
+            }
+        }
+    }
+
+    /// Logs expand/collapse, to check the auto-close behaviour live.
+    private func observeExpansion() {
+        let ui = controller.ui
+        withObservationTracking {
+            _ = ui.isExpanded
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.controller.log("expanded=\(ui.isExpanded) hovering=\(ui.isHovering) phase=\(ui.phase)")
+                self.observeExpansion()
             }
         }
     }

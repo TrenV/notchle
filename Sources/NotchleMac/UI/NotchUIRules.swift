@@ -1,3 +1,4 @@
+import Foundation
 import NotchleCore
 
 /// Text fields of the notch UI.
@@ -35,7 +36,7 @@ public enum FieldTransition: Hashable, Sendable {
 
 /// Pure presentation rules: which phases expand, which keys do what, what may be shown.
 public enum NotchUIRules {
-    /// Phases that wait for the player: the notch expands by itself when one begins.
+    /// Phases that wait for the player (shown as an attention cue on the collapsed pill).
     public static func needsInput(_ phase: GamePhase) -> Bool {
         switch phase {
         case .loading, .playingSnippet: false
@@ -67,17 +68,108 @@ public enum NotchUIRules {
         }
     }
 
-    /// Phases in which the panel takes the keyboard when it expands by itself.
-    public static func wantsKeyboard(_ phase: GamePhase) -> Bool {
-        needsInput(phase) || showsGuessFields(phase)
+    // MARK: Auto-close (Tren, 2026-09-24: "auto close on leaving with the mouse cursor please
+    // unless typing"). The notch expands only on hover or a click, never on a phase change.
+
+    /// How long the mouse may be outside the shape before it collapses (crossing the edge by
+    /// accident does not flicker; re-entering in time cancels).
+    public static let collapseGrace: TimeInterval = 0.4
+    /// A key press this recent counts as typing even in an empty field.
+    public static let typingWindow: TimeInterval = 2
+
+    /// Typing = a text field has focus AND (it holds text OR a key was pressed within `typingWindow`).
+    public static func isTyping(focused: UIField?, focusedText: String, lastKeyAt: Date?, now: Date) -> Bool {
+        guard focused != nil else { return false }
+        if !focusedText.trimmingCharacters(in: .whitespaces).isEmpty { return true }
+        guard let lastKeyAt else { return false }
+        return now.timeIntervalSince(lastKeyAt) < typingWindow
     }
 
-    /// Hover ended: collapse? Only in phases that need no input, and never while the player has
-    /// typed a guess during the snippet (collapsing would hide what they are typing).
-    public static func collapsesOnHoverEnd(_ phase: GamePhase, hasTypedGuess: Bool) -> Bool {
-        if needsInput(phase) { return false }
-        if case .playingSnippet = phase, hasTypedGuess { return false }
-        return true
+    /// Collapse now? Only when expanded, the mouse has been outside for the grace period and the
+    /// player is not typing. `mouseLeftAt` is nil while the mouse is inside.
+    public static func shouldAutoCollapse(expanded: Bool, mouseLeftAt: Date?, typing: Bool, now: Date) -> Bool {
+        guard expanded, let mouseLeftAt, !typing else { return false }
+        return now.timeIntervalSince(mouseLeftAt) >= collapseGrace
+    }
+
+    /// Phases in which a key press on the (clicked, key) but collapsed panel opens it to type.
+    public static func typingOpensPanel(_ phase: GamePhase) -> Bool {
+        showsGuessFields(phase) || showsURLField(phase)
+    }
+
+    /// What a key press on the key-but-collapsed panel does.
+    public enum CollapsedKeyBehavior: Hashable, Sendable {
+        /// Run the phase's command without opening (Return = Next, ⌘R = Retry).
+        case perform
+        /// Open the panel; nothing else (never submit a guess blind).
+        case expand
+        /// Open the panel and replay the key into the focused field once it exists.
+        case expandAndReplay
+        case ignore
+    }
+
+    /// `key` is nil for ordinary typing (letters, ⌘V…).
+    public static func collapsedKeyBehavior(_ key: UIKeyInput?, phase: GamePhase) -> CollapsedKeyBehavior {
+        let fields = typingOpensPanel(phase)
+        switch key {
+        case nil: return fields ? .expandAndReplay : .ignore
+        case .returnKey?: return fields ? .expand : .perform
+        case .tab?, .backTab?: return fields ? .expand : .ignore
+        case .commandR?: return .perform
+        case .escape?: return .ignore       // never give up on a panel you cannot see
+        }
+    }
+
+    // MARK: Collapsed pill
+
+    /// Left-wing glyph of the collapsed pill. Never carries the answer.
+    public enum CollapsedGlyph: Hashable, Sendable {
+        case note
+        /// Ring filling over the snippet's seconds, with a pulse.
+        case snippet(tierIndex: Int)
+        /// "?" with an attention dot: a guess is awaited.
+        case awaitingGuess
+        /// Brief ✓ right after a correct guess.
+        case correctFlash
+        /// The song plays on (after correct or revealed).
+        case playing
+        case setComplete
+        case setFailed
+        case warning
+    }
+
+    public struct CollapsedIndicator: Hashable, Sendable {
+        public var glyph: CollapsedGlyph
+        /// Right wing: "7/20", "20/20", "–"; nil = spinner (loading).
+        public var text: String?
+        /// Draw the text highlighted (set results, just after they arrive).
+        public var emphasized: Bool
+    }
+
+    /// How long a flash lasts after the phase begins (0 = none).
+    public static func flashDuration(_ phase: GamePhase) -> TimeInterval {
+        switch phase {
+        case .correct: 1.6
+        case .setComplete, .setFailed: 4
+        default: 0
+        }
+    }
+
+    /// Phase → collapsed pill. `secondsInPhase` drives the brief flashes.
+    public static func collapsedIndicator(_ state: GameState, secondsInPhase: TimeInterval) -> CollapsedIndicator {
+        let text = progressText(state)
+        let flashing = secondsInPhase < flashDuration(state.phase)
+        switch state.phase {
+        case .idle, .exhausted: return CollapsedIndicator(glyph: .note, text: text, emphasized: false)
+        case .loading: return CollapsedIndicator(glyph: .note, text: nil, emphasized: false)
+        case .playingSnippet(let t): return CollapsedIndicator(glyph: .snippet(tierIndex: t), text: text, emphasized: false)
+        case .guessing, .wrong: return CollapsedIndicator(glyph: .awaitingGuess, text: text, emphasized: false)
+        case .correct: return CollapsedIndicator(glyph: flashing ? .correctFlash : .playing, text: text, emphasized: flashing)
+        case .revealed: return CollapsedIndicator(glyph: .playing, text: text, emphasized: false)
+        case .setComplete: return CollapsedIndicator(glyph: .setComplete, text: text, emphasized: flashing)
+        case .setFailed: return CollapsedIndicator(glyph: .setFailed, text: text, emphasized: flashing)
+        case .error: return CollapsedIndicator(glyph: .warning, text: text, emphasized: false)
+        }
     }
 
     /// The answer, if this phase may show it. The single gate every view goes through:

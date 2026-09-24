@@ -11,23 +11,88 @@ import NotchleCore
         .setFailed(correctCount: 3), .exhausted, .error(message: "x"),
     ]
 
-    @Test func autoExpandPhases() {
-        let expanding = Self.allPhases.filter(NotchUIRules.needsInput)
-        #expect(expanding.count == 9)
+    @Test func phasesAwaitingInput() {
+        #expect(Self.allPhases.filter(NotchUIRules.needsInput).count == 9)
         #expect(!NotchUIRules.needsInput(.loading))
         #expect(!NotchUIRules.needsInput(.playingSnippet(tierIndex: 2)))
-        for p in [GamePhase.idle, .guessing(tierIndex: 0), .correct(tierIndex: 1), .revealed(verdict: nil),
-                  .setComplete(correctCount: 20), .setFailed(correctCount: 1), .exhausted, .error(message: "e")] {
-            #expect(NotchUIRules.needsInput(p), "\(p)")
-        }
     }
 
-    @Test func hoverEndCollapsesOnlyWithoutInput() {
-        #expect(NotchUIRules.collapsesOnHoverEnd(.loading, hasTypedGuess: false))
-        #expect(NotchUIRules.collapsesOnHoverEnd(.playingSnippet(tierIndex: 0), hasTypedGuess: false))
-        #expect(!NotchUIRules.collapsesOnHoverEnd(.playingSnippet(tierIndex: 0), hasTypedGuess: true))
-        #expect(!NotchUIRules.collapsesOnHoverEnd(.guessing(tierIndex: 0), hasTypedGuess: false))
-        #expect(!NotchUIRules.collapsesOnHoverEnd(.idle, hasTypedGuess: false))
+    // MARK: Auto-close
+
+    let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+    @Test func typingNeedsFocusAndTextOrARecentKey() {
+        func typing(_ f: UIField?, _ text: String, keyAgo: Double?) -> Bool {
+            NotchUIRules.isTyping(focused: f, focusedText: text, lastKeyAt: keyAgo.map { t0.addingTimeInterval(-$0) }, now: t0)
+        }
+        #expect(!typing(nil, "Paper", keyAgo: 0.1))          // no focus: never typing
+        #expect(typing(.title, "Paper", keyAgo: nil))          // text in the focused field
+        #expect(typing(.url, "https://", keyAgo: 60))
+        #expect(typing(.artist, "", keyAgo: 1.9))              // empty but a key just now
+        #expect(!typing(.artist, "", keyAgo: 2.0))             // empty and idle for 2s
+        #expect(!typing(.title, "   ", keyAgo: nil))           // whitespace is empty
+        #expect(!typing(.title, "", keyAgo: nil))
+    }
+
+    @Test func collapseAfterGraceUnlessTyping() {
+        func collapse(expanded: Bool = true, leftAgo: Double?, typing: Bool = false) -> Bool {
+            NotchUIRules.shouldAutoCollapse(expanded: expanded, mouseLeftAt: leftAgo.map { t0.addingTimeInterval(-$0) },
+                                            typing: typing, now: t0)
+        }
+        #expect(!collapse(leftAgo: nil))                       // mouse inside
+        #expect(!collapse(leftAgo: 0.39))                      // within the grace period
+        #expect(collapse(leftAgo: 0.4))
+        #expect(collapse(leftAgo: 30))
+        #expect(!collapse(leftAgo: 30, typing: true))          // typing keeps it open
+        #expect(!collapse(expanded: false, leftAgo: 30))
+        #expect(NotchUIRules.collapseGrace == 0.4)
+        #expect(NotchUIRules.typingWindow == 2)
+    }
+
+    @Test func keysOnACollapsedPanel() {
+        typealias B = NotchUIRules.CollapsedKeyBehavior
+        func k(_ key: UIKeyInput?, _ p: GamePhase) -> B { NotchUIRules.collapsedKeyBehavior(key, phase: p) }
+        let guessing = GamePhase.guessing(tierIndex: 0)
+        #expect(k(nil, guessing) == .expandAndReplay)
+        #expect(k(nil, .idle) == .expandAndReplay)
+        #expect(k(nil, .correct(tierIndex: 0)) == .ignore)
+        #expect(k(.returnKey, guessing) == .expand)             // never submit blind
+        #expect(k(.returnKey, .correct(tierIndex: 0)) == .perform)
+        #expect(k(.returnKey, .setComplete(correctCount: 20)) == .perform)
+        #expect(k(.escape, guessing) == .ignore)                // never give up blind
+        #expect(k(.commandR, .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))) == .perform)
+        #expect(k(.tab, .playingSnippet(tierIndex: 0)) == .expand)
+    }
+
+    @Test func collapsedIndicatorPerPhase() {
+        var s = GameState()
+        let track = Track(id: "x", uri: "spotify:track:x", title: "Secret Title", artists: ["Secret Artist"],
+                          durationMs: 1, previewURL: nil)
+        s.currentSet = Array(repeating: track, count: 20)
+        s.index = 6
+        func ind(_ p: GamePhase, _ secs: Double = 0.1) -> NotchUIRules.CollapsedIndicator {
+            s.phase = p
+            return NotchUIRules.collapsedIndicator(s, secondsInPhase: secs)
+        }
+        #expect(ind(.playingSnippet(tierIndex: 1)).glyph == .snippet(tierIndex: 1))
+        #expect(ind(.playingSnippet(tierIndex: 1)).text == "7/20")
+        #expect(ind(.guessing(tierIndex: 0)).glyph == .awaitingGuess)
+        #expect(ind(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: true, artistCorrect: false))).glyph == .awaitingGuess)
+        #expect(ind(.correct(tierIndex: 0), 0.5).glyph == .correctFlash)
+        #expect(ind(.correct(tierIndex: 0), 0.5).emphasized)
+        #expect(ind(.correct(tierIndex: 0), 2).glyph == .playing)
+        #expect(!ind(.correct(tierIndex: 0), 2).emphasized)
+        #expect(ind(.revealed(verdict: nil)).glyph == .playing)
+        #expect(ind(.setComplete(correctCount: 20), 1) == .init(glyph: .setComplete, text: "20/20", emphasized: true))
+        #expect(ind(.setFailed(correctCount: 14), 1) == .init(glyph: .setFailed, text: "14/20", emphasized: true))
+        #expect(ind(.setFailed(correctCount: 14), 5).emphasized == false)
+        #expect(ind(.loading).text == nil)                      // spinner
+        #expect(ind(.error(message: "e")).glyph == .warning)
+        #expect(ind(.idle).glyph == .note)
+        for p in Self.allPhases {
+            let text = ind(p).text ?? ""
+            #expect(!text.contains("Secret"), "\(p)")
+        }
     }
 
     @Test func returnKeyMeansThePrimaryButton() {
