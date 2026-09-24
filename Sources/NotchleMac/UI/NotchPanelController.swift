@@ -224,7 +224,8 @@ public final class NotchPanelController {
                                       modifiers: flags),
               let command = NotchUIRules.command(for: key, phase: model.state.phase, focused: ui.focusedField,
                                                  settingsOpen: ui.showingSettings, config: model.state.config,
-                                                 quitArmed: ui.isQuitArmed())
+                                                 quitArmed: ui.isQuitArmed(),
+                                                 historyOpen: ui.tab == .history)
         else { return false }
         ui.perform(command)
         if command == .collapse { releaseKeyboard() }
@@ -246,6 +247,8 @@ public final class NotchPanelController {
             if mods == .command, characters?.lowercased() == "n" { return .commandN }
             if mods == [.command, .shift], characters?.lowercased() == "r" { return .commandShiftR }
             if mods == [.command, .shift], characters?.lowercased() == "s" { return .commandShiftS }
+            if mods == .command, characters == "1" { return .command1 }
+            if mods == .command, characters == "2" { return .command2 }
             return nil
         }
     }
@@ -269,14 +272,14 @@ public final class NotchPanelController {
     /// Only the shape takes the mouse; everywhere else the panel lets clicks through.
     private func updateMouse(at point: NSPoint) {
         guard let panel, let geometry else { return }
-        let inside = NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded).contains(point)
+        let inside = NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded, tall: ui.usesTallLayout).contains(point)
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         ui.hoverChanged(inside)
         startCollapseTimerIfNeeded()
     }
 
     private func clickedShape(at point: NSPoint) {
-        guard let geometry, NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded).contains(point) else { return }
+        guard let geometry, NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded, tall: ui.usesTallLayout).contains(point) else { return }
         let wasKey = panel?.isKeyWindow ?? false
         ui.clicked()
         // Only the first click (taking the keyboard) moves the cursor to the phase's field, and

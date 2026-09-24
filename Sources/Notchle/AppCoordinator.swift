@@ -13,6 +13,8 @@ final class AppCoordinator {
     private var player: Player
     private let source: TrackSource
     private let store: ProgressStore
+    private let historyStore: HistoryStore
+    private let artwork: ArtworkResolver
     private let makePlayer: @MainActor (PlayerMode) -> Player
 
     /// Playback operations run strictly one after another. A new operation cancels the one
@@ -32,10 +34,15 @@ final class AppCoordinator {
     init(
         source: TrackSource = EmbedTrackSource(),
         store: ProgressStore = AppCoordinator.defaultStore(),
+        historyStore: HistoryStore? = nil,
+        artwork: ArtworkResolver = ArtworkResolver(),
         makePlayer: @escaping @MainActor (PlayerMode) -> Player = AppCoordinator.makeDefaultPlayer
     ) {
         self.source = source
         self.store = store
+        // Next to progress.json by default (so tests with a temp store never touch the real one).
+        self.historyStore = historyStore ?? HistoryStore(directory: store.fileURL.deletingLastPathComponent())
+        self.artwork = artwork
         self.makePlayer = makePlayer
         let progress = store.load()
         self.settings = progress.settings
@@ -46,7 +53,9 @@ final class AppCoordinator {
         )
         self.player = makePlayer(progress.settings.playerMode)
         self.model = NotchViewModel(state: engine.state, settings: progress.settings)
+        model.history = self.historyStore.load()
         publishPlayer()
+        model.clearHistory = { [weak self] in self?.clearHistory() }
         model.send = { [weak self] action in self?.send(action) }
         model.updateSettings = { [weak self] new in self?.apply(settings: new) }
     }
@@ -54,6 +63,7 @@ final class AppCoordinator {
     func send(_ action: GameAction) {
         let effects = engine.send(action)
         model.state = engine.state
+        if !Self.showsAnswer(engine.state.phase) { model.currentArtworkURL = nil }
         effects.forEach(run)
     }
 
@@ -63,6 +73,12 @@ final class AppCoordinator {
         engine = GameEngine(config: settings.config, clearedTrackIDs: [], seed: UInt64.random(in: .min ... .max))
         model.state = engine.state
         save()
+    }
+
+    /// Empties the play history (its own two-step button; Reset progress leaves it alone).
+    func clearHistory() {
+        do { try historyStore.clear() } catch { NSLog("Notchle: clearing history failed: \(error)") }
+        model.history = []
     }
 
     // MARK: - Effects
@@ -125,6 +141,58 @@ final class AppCoordinator {
 
         case .persistProgress:
             save()
+
+        case let .recordOutcome(track, outcome, wrongGuesses, skips):
+            let entry = HistoryEntry(date: Date(), track: track, outcome: outcome,
+                                     wrongGuesses: wrongGuesses, skips: skips,
+                                     listingName: engine.state.listing?.name ?? "",
+                                     listingRef: engine.state.listing?.ref)
+            do {
+                model.history = try historyStore.append(entry)
+            } catch {
+                NSLog("Notchle: saving history failed: \(error)")
+                model.history = HistoryStore.capped(model.history + [entry], historyStore.cap)
+            }
+            resolveArtwork(for: track.id, entryID: entry.id)
+        }
+    }
+
+    /// Looks up the cover now that the answer is decided (never earlier: spoiler rule), then
+    /// stores it with the history entry and shows it if that track's answer is still on screen.
+    /// Recording never waits for this; a failure leaves the entry without a cover.
+    private func resolveArtwork(for trackID: String, entryID: UUID) {
+        let resolver = artwork
+        let id = UUID()
+        artworkTasks[id] = Task {
+            defer { self.artworkTasks[id] = nil }
+            guard let url = await resolver.artworkURL(forTrackID: trackID) else { return }
+            if self.engine.state.currentTrack?.id == trackID, Self.showsAnswer(self.engine.state.phase) {
+                self.model.currentArtworkURL = url
+            }
+            do {
+                self.model.history = try self.historyStore.setArtworkURL(url, for: entryID)
+            } catch {
+                NSLog("Notchle: saving the cover failed: \(error)")
+                self.model.history = self.model.history.map { $0.id == entryID ? $0.withArtworkURL(url) : $0 }
+            }
+        }
+    }
+
+    /// Cover lookups in flight; each removes itself when done (runs on the main actor, so it
+    /// cannot finish before it is stored).
+    private var artworkTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// Waits for every pending cover lookup (tests).
+    func drainArtwork() async {
+        while !artworkTasks.isEmpty {
+            for t in Array(artworkTasks.values) { await t.value }
+        }
+    }
+
+    private static func showsAnswer(_ phase: GamePhase) -> Bool {
+        switch phase {
+        case .correct, .revealed: true
+        default: false
         }
     }
 

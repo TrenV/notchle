@@ -234,17 +234,23 @@ struct AnswerView: View {
             }
             .font(.system(size: 12, weight: .semibold))
             .frame(height: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(answer?.title ?? "–")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(NotchPalette.primaryText)
-                Text(answer?.artist ?? "")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(NotchPalette.secondaryText)
+            HStack(spacing: 12) {
+                if let art = NotchUIRules.revealedArtwork(state, url: ui.model.currentArtworkURL) {
+                    CoverArtView(trackID: art.trackID, url: art.url, size: 64, cornerRadius: 8,
+                                 placeholder: false)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(answer?.title ?? "–")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(NotchPalette.primaryText)
+                    Text(answer?.artist ?? "")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(NotchPalette.secondaryText)
+                }
+                .lineLimit(1)
+                .truncationMode(.tail)
             }
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.top, 10)
+            .padding(.top, 8)
             Spacer(minLength: 6)
             HStack(alignment: .center) {
                 if !ui.model.playerPlaysFullTrack {

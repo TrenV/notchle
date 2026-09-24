@@ -30,6 +30,12 @@ public enum UISnapshots {
         var secondsInPhase: Double = 0.3
         /// "Quit playlist?" armed in the header.
         var quitArmed = false
+        /// History tab showing, with this history (nil = the demo history).
+        var historyTab = false
+        var history: [HistoryEntry]?
+        var clearHistoryArmed = false
+        /// Answer screens: show a generated cover (nil = none). Tests pass their own image.
+        var cover: ((String) -> NSImage?)?
     }
 
     static var scenarios: [Scenario] {
@@ -81,6 +87,16 @@ public enum UISnapshots {
             Scenario(name: "37-quit-armed", phase: .guessing(tierIndex: 0), title: "Paper", quitArmed: true),
             Scenario(name: "38-quit-armed-correct", phase: .correct(tierIndex: 0), quitArmed: true),
             Scenario(name: "39-quit-armed-pill", phase: .playingSnippet(tierIndex: 1), hasNotch: false, quitArmed: true),
+            // History tab and album covers.
+            Scenario(name: "40-history", phase: .idle, historyTab: true),
+            Scenario(name: "41-history-empty", phase: .idle, historyTab: true, history: []),
+            Scenario(name: "42-history-clear-armed", phase: .setFailed(correctCount: 14), historyTab: true,
+                     clearHistoryArmed: true),
+            // Mid-set: the demo mix's tracks are hidden, only the other playlist shows.
+            Scenario(name: "43-history-mid-set", phase: .guessing(tierIndex: 0), title: "Paper", historyTab: true),
+            Scenario(name: "44-history-pill", phase: .idle, hasNotch: false, historyTab: true),
+            Scenario(name: "45-correct-cover", phase: .correct(tierIndex: 1), cover: { DemoHistory.cover(for: $0) }),
+            Scenario(name: "46-revealed-cover", phase: .revealed(verdict: nil), cover: { DemoHistory.cover(for: $0) }),
         ]
     }
 
@@ -137,13 +153,26 @@ public enum UISnapshots {
         ui.snippetStart = Date().addingTimeInterval(-sc.snippetElapsed)
         ui.phaseStartedAt = Date().addingTimeInterval(-sc.secondsInPhase)
         if sc.quitArmed { ui.quitArmedAt = Date() }
+        model.history = sc.history ?? DemoHistory.entries()
+        if sc.historyTab {
+            ui.showTab(.history)
+            ui.isExpanded = sc.expanded
+        }
+        if sc.clearHistoryArmed { ui.clearHistoryArmedAt = Date() }
+        let cache = ArtworkImageCache.shared
+        let previousOverride = cache.override
+        cache.override = sc.cover ?? { DemoHistory.cover(for: $0) }
+        defer { cache.override = previousOverride }
+        if sc.cover != nil, let track = model.state.currentTrack {
+            model.currentArtworkURL = URL(string: "https://example.invalid/\(track.id).jpg")
+        }
 
         let notchSize = NotchGeometry.fallbackNotchSize
         let geometry = NotchGeometry(
             hardwareNotch: sc.hasNotch ? CGRect(origin: .zero, size: notchSize) : nil,
             notchSize: notchSize, centerX: NotchMetrics.panelSize.width / 2, anchorTop: NotchMetrics.panelSize.height)
         let height: CGFloat = sc.tall ? NotchMetrics.panelSize.height
-            : (sc.expanded ? NotchMetrics.expandedSize.height + 60 : 96)
+            : (sc.expanded ? NotchMetrics.shapeSize(geometry, expanded: true, tall: ui.usesTallLayout).height + 60 : 96)
         let size = CGSize(width: NotchMetrics.panelSize.width, height: height)
         let root = ZStack(alignment: .top) {
             MockDesktop(hasNotch: sc.hasNotch, notchSize: notchSize)

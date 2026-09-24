@@ -63,6 +63,8 @@ public enum NotchMetrics {
     /// Extra width on each side of the notch when collapsed (glyph left, progress right).
     public static let collapsedWing: CGFloat = 50
     public static let expandedSize = CGSize(width: 468, height: 178)
+    /// The History tab: same width, taller so a useful part of the list fits.
+    public static let historySize = CGSize(width: 468, height: 300)
     /// The panel is larger than the expanded shape so confetti can fall out below it.
     /// Everything outside the visible shape lets clicks through.
     public static let panelSize = CGSize(width: 760, height: 440)
@@ -73,8 +75,9 @@ public enum NotchMetrics {
         CGSize(width: g.notchSize.width + 2 * collapsedWing, height: g.notchSize.height)
     }
 
-    public static func shapeSize(_ g: NotchGeometry, expanded: Bool) -> CGSize {
-        expanded ? expandedSize : collapsedSize(g)
+    /// `tall`: the History tab is showing.
+    public static func shapeSize(_ g: NotchGeometry, expanded: Bool, tall: Bool = false) -> CGSize {
+        expanded ? (tall ? historySize : expandedSize) : collapsedSize(g)
     }
 
     /// Panel frame in screen coordinates: top-centred on the anchor.
@@ -84,14 +87,14 @@ public enum NotchMetrics {
     }
 
     /// The visible shape in screen coordinates.
-    public static func shapeFrame(_ g: NotchGeometry, expanded: Bool) -> CGRect {
-        let s = shapeSize(g, expanded: expanded)
+    public static func shapeFrame(_ g: NotchGeometry, expanded: Bool, tall: Bool = false) -> CGRect {
+        let s = shapeSize(g, expanded: expanded, tall: tall)
         return CGRect(x: g.centerX - s.width / 2, y: g.anchorTop - s.height, width: s.width, height: s.height)
     }
 
     /// The area that takes the mouse: the shape plus a little slack. With a notch the slack
     /// also extends above the screen top so the very top pixel row counts.
-    public static func hoverFrame(_ g: NotchGeometry, expanded: Bool) -> CGRect {
-        shapeFrame(g, expanded: expanded).insetBy(dx: -hoverSlack, dy: -hoverSlack)
+    public static func hoverFrame(_ g: NotchGeometry, expanded: Bool, tall: Bool = false) -> CGRect {
+        shapeFrame(g, expanded: expanded, tall: tall).insetBy(dx: -hoverSlack, dy: -hoverSlack)
     }
 }
