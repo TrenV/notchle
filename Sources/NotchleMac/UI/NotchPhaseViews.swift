@@ -12,11 +12,11 @@ struct PhaseContent: View {
         Group {
             switch state.phase {
             case .idle:
-                SourceEntryView(ui: ui, focus: focus, heading: "Paste a Spotify link",
-                                subheading: "A playlist, album or artist. You get 5 seconds per song.")
+                SourceEntryView(ui: ui, focus: focus, heading: SourceEntryCopy.idleHeading,
+                                subheading: SourceEntryCopy.idleSub)
             case .exhausted:
-                SourceEntryView(ui: ui, focus: focus, heading: "You've heard them all",
-                                subheading: "Every song in \(state.listing?.name ?? "this listing") has been played. Try another link.")
+                SourceEntryView(ui: ui, focus: focus, heading: SourceEntryCopy.exhaustedHeading,
+                                subheading: SourceEntryCopy.exhaustedSub(state.listing?.name))
             case .loading:
                 LoadingView(name: state.listing?.name)
             // One branch for both, so SwiftUI keeps the same text fields when the snippet ends:
@@ -55,10 +55,11 @@ struct SourceEntryView: View {
             Text(heading)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(NotchPalette.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
             Text(subheading)
                 .font(.system(size: 11.5))
                 .foregroundStyle(NotchPalette.secondaryText)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 3)
             Spacer(minLength: 10)
             HStack(spacing: 8) {
@@ -67,10 +68,10 @@ struct SourceEntryView: View {
                 Button { ui.load() } label: { KeyHintLabel(title: "Load", hint: "⏎") }
                     .buttonStyle(NotchButtonStyle(kind: .primary))
             }
-            HStack(spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 if let message = ui.urlMessage {
                     Image(systemName: "exclamationmark.circle.fill")
-                    Text(message)
+                    Text(message).fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("Links from open.spotify.com or music.apple.com")
                         .foregroundStyle(NotchPalette.tertiaryText)
@@ -78,7 +79,7 @@ struct SourceEntryView: View {
             }
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(NotchPalette.red)
-            .frame(height: 16)
+            .frame(minHeight: 16, alignment: .leading)
             .padding(.top, 8)
         }
         .onChange(of: ui.urlText) { ui.urlMessage = nil }
@@ -93,10 +94,11 @@ struct LoadingView: View {
     var body: some View {
         VStack(spacing: 12) {
             NotchSpinner()
-            Text(name.map { "Loading \($0)…" } ?? "Loading songs…")
+            Text(SourceEntryCopy.loading(name))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(NotchPalette.secondaryText)
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -187,6 +189,7 @@ struct WrongView: View {
                 VerdictChip(label: "Artist(s)", correct: verdict.artistCorrect, guess: ui.artistText,
                             hint: NotchUIRules.artistHint(verdict, artistCount: NotchUIRules.artistCount(ui.model.state)))
             }
+            .fixedSize(horizontal: false, vertical: true)   // both chips as tall as the taller one
             .padding(.top, 12)
             Spacer(minLength: 8)
             HStack {
@@ -234,21 +237,28 @@ struct AnswerView: View {
             }
             .font(.system(size: 12, weight: .semibold))
             .frame(height: 18)
-            HStack(spacing: 12) {
+            // Long titles wrap (3 lines), then shrink a little; the notch grows to fit them
+            // (NotchLayout.answerBody). Nothing is cut off.
+            HStack(alignment: .center, spacing: NotchLayout.coverGap) {
                 if let art = NotchUIRules.revealedArtwork(state, url: ui.model.currentArtworkURL) {
-                    CoverArtView(trackID: art.trackID, url: art.url, size: 64, cornerRadius: 8,
+                    CoverArtView(trackID: art.trackID, url: art.url, size: NotchLayout.coverSize, cornerRadius: 8,
                                  placeholder: false)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(answer?.title ?? "–")
                         .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(NotchPalette.primaryText)
+                        .lineLimit(NotchLayout.answerTitleLines)
+                        .minimumScaleFactor(NotchLayout.answerTitleMinScale)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(answer?.artist ?? "")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(NotchPalette.secondaryText)
+                        .lineLimit(NotchLayout.answerArtistLines)
+                        .minimumScaleFactor(NotchLayout.answerArtistMinScale)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.top, 8)
             Spacer(minLength: 6)
@@ -282,9 +292,7 @@ struct SetEndView: View {
     }
 
     private var subtitle: String {
-        if availableNew == 0 { return "No new songs left in this playlist · paste another link" }
-        return complete ? "All \(total) cleared. On to new songs?"
-                        : "\(total - correct) to practise. Keep them, replay all, or start fresh."
+        SourceEntryCopy.setEndSubtitle(complete: complete, correct: correct, total: total, availableNew: availableNew)
     }
 
     private func hint(_ choice: SetChoice, primary: Bool) -> String? {
@@ -362,7 +370,6 @@ struct ErrorView: View {
                     Text(message)
                         .font(.system(size: 12))
                         .foregroundStyle(NotchPalette.secondaryText)
-                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

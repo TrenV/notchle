@@ -87,7 +87,7 @@ struct NotchHistoryView: View {
                     .monospacedDigit()
                     .foregroundStyle(NotchPalette.primaryText)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.8)
             }
             Text(label)
                 .font(.system(size: 9.5, weight: .medium))
@@ -153,7 +153,7 @@ struct HistoryRow: View {
     let now: Date
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             CoverArtView(trackID: entry.trackID, url: entry.artworkURL, size: 28, cornerRadius: 5)
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: entry.correct ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -162,28 +162,43 @@ struct HistoryRow: View {
                         .background(Circle().fill(Color.black).padding(-1))
                         .offset(x: 3, y: 3)
                 }
+            // Title, artists and where/when each on their own line, wrapping instead of being
+            // cut off (the list scrolls, so a taller row costs nothing).
             VStack(alignment: .leading, spacing: 1) {
-                (Text(entry.title).foregroundStyle(NotchPalette.primaryText)
-                 + Text("  " + entry.artists.joined(separator: ", ")).foregroundStyle(NotchPalette.secondaryText))
+                Text(entry.title)
                     .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text([entry.listingName, NotchHistoryRules.relativeDate(entry.date, now: now)]
-                        .filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(NotchPalette.tertiaryText)
-                    .lineLimit(1)
+                    .foregroundStyle(NotchPalette.primaryText)
+                    .lineLimit(NotchLayout.historyTitleLines)
+                    .minimumScaleFactor(NotchLayout.historyTitleMinScale)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !entry.artists.isEmpty {
+                    Text(entry.artists.joined(separator: ", "))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(NotchPalette.secondaryText)
+                        .lineLimit(NotchLayout.historyArtistLines)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // Where/when, with the counters and badge at its end: the title and artists
+                // above get the row's full width.
+                HStack(alignment: .center, spacing: 6) {
+                    Text([entry.listingName, NotchHistoryRules.relativeDate(entry.date, now: now)]
+                            .filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(NotchPalette.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    if entry.skips > 0 { counter("forward.end.fill", entry.skips, help: "Skips") }
+                    if entry.wrongGuesses > 0 { counter("xmark", entry.wrongGuesses, help: "Wrong guesses") }
+                    Text(NotchHistoryRules.badge(entry))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(entry.correct ? NotchPalette.green : NotchPalette.red)
+                        .padding(.horizontal, 7)
+                        .frame(height: 18)
+                        .background(Capsule().fill((entry.correct ? NotchPalette.green : NotchPalette.red).opacity(0.15)))
+                        .fixedSize()
+                }
             }
-            Spacer(minLength: 4)
-            if entry.skips > 0 { counter("forward.end.fill", entry.skips, help: "Skips") }
-            if entry.wrongGuesses > 0 { counter("xmark", entry.wrongGuesses, help: "Wrong guesses") }
-            Text(NotchHistoryRules.badge(entry))
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(entry.correct ? NotchPalette.green : NotchPalette.red)
-                .padding(.horizontal, 7)
-                .frame(height: 18)
-                .background(Capsule().fill((entry.correct ? NotchPalette.green : NotchPalette.red).opacity(0.15)))
-                .fixedSize()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 4)
     }

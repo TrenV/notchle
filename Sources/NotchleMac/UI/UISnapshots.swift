@@ -113,7 +113,61 @@ public enum UISnapshots {
             Scenario(name: "49-history-pill", phase: .idle, hasNotch: false, historyTab: true),
             Scenario(name: "50-correct-cover", phase: .correct(tierIndex: 1), cover: { DemoHistory.cover(for: $0) }),
             Scenario(name: "51-revealed-cover", phase: .revealed(verdict: nil), cover: { DemoHistory.cover(for: $0) }),
+            // Long real-world strings: nothing may be cut off ("…") or clipped.
+            Scenario(name: "60-long-correct", phase: .correct(tierIndex: 1), state: LongText.state(.correct(tierIndex: 1))),
+            Scenario(name: "61-long-correct-cover", phase: .correct(tierIndex: 0), state: LongText.state(.correct(tierIndex: 0)),
+                     cover: { DemoHistory.cover(for: $0) }),
+            Scenario(name: "62-long-revealed-pill", phase: .revealed(verdict: nil), hasNotch: false,
+                     state: LongText.state(.revealed(verdict: nil))),
+            Scenario(name: "63-long-wrong", phase: .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)),
+                     title: LongText.titleGuess, artist: LongText.artistGuess,
+                     state: LongText.state(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)))),
+            Scenario(name: "64-long-guessing", phase: .guessing(tierIndex: 0), state: LongText.state(.guessing(tierIndex: 0))),
+            Scenario(name: "65-long-error", phase: .error(message: LongText.error), state: LongText.state(.error(message: LongText.error))),
+            Scenario(name: "66-long-history", phase: .idle, historyTab: true, history: LongText.history()),
+            Scenario(name: "67-long-loading", phase: .loading, state: LongText.state(.loading)),
+            Scenario(name: "68-long-exhausted", phase: .exhausted, state: LongText.state(.exhausted)),
+            Scenario(name: "69-long-set-failed", phase: .setFailed(correctCount: 3), state: LongText.state(.setFailed(correctCount: 3))),
+            Scenario(name: "70-long-idle-message", phase: .idle, url: "https://open.spotify.com/track/abc",
+                     urlMessage: LongText.urlMessage),
+            Scenario(name: "71-long-settings-connected", phase: .guessing(tierIndex: 0), settings: true,
+                     state: LongText.state(.guessing(tierIndex: 0)),
+                     connect: .connected(displayName: "Tren Verheijen (Family Premium, Netherlands)")),
+            Scenario(name: "72-long-settings-failed", phase: .guessing(tierIndex: 0), settings: true,
+                     connect: .failed(LongText.error), clientID: "0123456789abcdef0123456789abcdef"),
+            Scenario(name: "73-long-correct-quit-armed", phase: .correct(tierIndex: 0), state: LongText.state(.correct(tierIndex: 0)),
+                     quitArmed: true),
         ]
+    }
+
+    /// Deliberately long, real-world strings for the "everything fits" scenarios and tests.
+    @MainActor enum LongText {
+        static let title = "Hate That I Made You Love Me (Extended Version) - Live From The O2 Arena, London / 2025 Remaster"
+        static let artists = ["KAROL G", "Judeline", "rusowsky", "Tiësto", "Peso Pluma"]
+        static let playlist = "My Absolutely Enormous Road Trip Playlist Summer 2026 Edition"
+        static let titleGuess = "Hate That I Made You Love Me Extended Live Version London"
+        static let artistGuess = "Karol G, Judeline, Rusowsky and Tiesto featuring Peso Pluma"
+        static let error = "Spotify refused to start playback on this Mac (HTTP 502 Bad Gateway from api.spotify.com). Open Spotify, make sure you are signed in with a Premium account, then press Skip to try the next song."
+        static let urlMessage = "That looks like a single track. Paste a link to a playlist, album or artist instead so there is a set to play."
+
+        static let track = Track(id: "long1", uri: "spotify:track:long1", title: title, artists: artists,
+                                 durationMs: 200_000, previewURL: nil)
+
+        static func state(_ phase: GamePhase) -> GameState {
+            var s = sampleState(phase, index: 6)
+            var tracks = DemoGame.tracks
+            tracks[6] = track
+            s.listing = SourceListing(ref: SourceRef(kind: .playlist, id: "long"), name: playlist, tracks: tracks)
+            if !s.currentSet.isEmpty { s.currentSet = tracks }
+            return s
+        }
+
+        static func history() -> [HistoryEntry] {
+            [HistoryEntry(date: Date().addingTimeInterval(-300), track: track, outcome: .missed, wrongGuesses: 2,
+                          skips: 1, listingName: playlist, listingRef: nil,
+                          artworkURL: URL(string: "https://example.invalid/long1.jpg"))]
+                + DemoHistory.entries()
+        }
     }
 
     /// Writes one PNG per scenario; returns the file URLs.
@@ -201,7 +255,7 @@ public enum UISnapshots {
             hardwareNotch: sc.hasNotch ? CGRect(origin: .zero, size: notchSize) : nil,
             notchSize: notchSize, centerX: NotchMetrics.panelSize.width / 2, anchorTop: NotchMetrics.panelSize.height)
         let height: CGFloat = sc.tall ? NotchMetrics.panelSize.height
-            : (sc.expanded ? NotchMetrics.shapeSize(geometry, expanded: true, tall: ui.usesTallLayout).height + 60 : 96)
+            : (sc.expanded ? NotchLayout.shapeSize(ui, geometry).height + 60 : 96)
         let size = CGSize(width: NotchMetrics.panelSize.width, height: height)
         let root = ZStack(alignment: .top) {
             MockDesktop(hasNotch: sc.hasNotch, notchSize: notchSize)

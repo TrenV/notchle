@@ -62,6 +62,7 @@ public struct NotchGeometry: Sendable, Equatable {
 public enum NotchMetrics {
     /// Extra width on each side of the notch when collapsed (glyph left, progress right).
     public static let collapsedWing: CGFloat = 50
+    /// The expanded shape's width and minimum height; `NotchLayout.expandedHeight` grows it to fit long text.
     public static let expandedSize = CGSize(width: 468, height: 178)
     /// The History tab: same width, taller so a useful part of the list fits.
     public static let historySize = CGSize(width: 468, height: 300)

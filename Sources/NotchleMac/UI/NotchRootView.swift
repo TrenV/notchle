@@ -18,7 +18,7 @@ public struct NotchRootView: View {
     public var body: some View {
         let expanded = ui.isExpanded
         let tall = ui.usesTallLayout
-        let size = NotchMetrics.shapeSize(geometry, expanded: expanded, tall: tall)
+        let size = NotchLayout.shapeSize(ui, geometry)
         let silhouette = NotchSilhouette(hasNotch: geometry.hasNotch, expanded: expanded)
 
         ZStack(alignment: .top) {
@@ -57,6 +57,8 @@ public struct NotchRootView: View {
                    value: expanded)
         .animation(reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.36, dampingFraction: 0.85),
                    value: tall)
+        .animation(reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.36, dampingFraction: 0.85),
+                   value: size.height)
         .environment(\.colorScheme, .dark)
     }
 }
@@ -234,6 +236,16 @@ struct ExpandedContent: View {
             header(state)
                 .frame(height: max(geometry.notchSize.height, 28))
                 .padding(.horizontal, inset + 16)
+            if !titleFitsHeader {
+                // Too long for the wing beside the notch: its own row, wrapped, never cut off.
+                Text(headerTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NotchPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, NotchLayout.captionGap)
+                    .padding(.horizontal, NotchLayout.contentInset(hasNotch: geometry.hasNotch))
+            }
             Group {
                 if ui.showingSettings {
                     NotchSettingsView(ui: ui)
@@ -254,6 +266,13 @@ struct ExpandedContent: View {
         .onChange(of: focus) { ui.focusedField = focus }
     }
 
+    private var headerTitle: String { NotchLayout.headerTitle(ui) }
+
+    private var titleFitsHeader: Bool {
+        NotchLayout.headerTitleFits(headerTitle, hasNotch: geometry.hasNotch, notchWidth: geometry.notchSize.width,
+                                    progress: NotchLayout.headerProgress(ui.model.state))
+    }
+
     private func applyRequestedFocus() {
         focus = ui.requestedFocus
         // The field may only exist after this layout pass (new phase view); try again then.
@@ -268,11 +287,12 @@ struct ExpandedContent: View {
     private func header(_ state: GameState) -> some View {
         HStack(spacing: 6) {
             NotchTabSwitch(ui: ui)
-            Text(ui.tab == .history && !ui.showingSettings ? "History" : state.listing?.name ?? "Notchle")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(NotchPalette.secondaryText)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if titleFitsHeader {
+                Text(headerTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(NotchPalette.secondaryText)
+                    .fixedSize()
+            }
             // Keep the middle clear: that is where the camera housing sits.
             Spacer(minLength: geometry.hasNotch ? geometry.notchSize.width + 12 : 12)
             if NotchUIRules.showsQuit(state.phase) {
