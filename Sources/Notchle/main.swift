@@ -13,7 +13,13 @@ if let i = arguments.firstIndex(of: "--ui-snapshots"), i + 1 < arguments.count {
     exit(0)
 }
 
-if arguments.contains("--ui-demo") {
+if arguments.contains("--probe-spotify-window") {
+    Task { @MainActor in
+        await SpotifyWindowProbe.run()
+        exit(0)
+    }
+    app.run()
+} else if arguments.contains("--ui-demo") {
     let demo = MainActor.assumeIsolated { UIDemo(arguments: arguments) }
     MainActor.assumeIsolated { demo.start() }
     app.run()
