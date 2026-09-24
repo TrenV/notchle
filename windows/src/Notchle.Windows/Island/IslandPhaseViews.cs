@@ -19,7 +19,9 @@ internal sealed class IslandContext
     /// Re-render after a click changed session state.
     public required Action Changed { get; init; }
 
-    public void Send(GameAction action) => Vm.Send(action);
+    // One path for every action (the session forwards to the view model), so what a test or
+    // the window hooks on Session.Send sees every button.
+    public void Send(GameAction action) => Session.Send(action);
 
     public void SetPlayerMode(PlayerMode mode)
     {

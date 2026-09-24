@@ -32,8 +32,6 @@ public class IslandRestartTests
     }
 
     [Theory]
-    [InlineData("08-wrong-t0")]
-    [InlineData("23-wrong-two-artists")]
     [InlineData("02-idle")]
     [InlineData("16-set-failed")]
     [InlineData("18-error")]
@@ -88,5 +86,21 @@ public class IslandRestartTests
             focusable = Assert.Single(IslandSnapshots.Descendants<IslandIconButton>(root)).Focusable;
         });
         Assert.False(focusable);
+    }
+
+    // Replay is also offered after a wrong guess (Tren: "there should also always be a replay
+    // button"); it replays the snippet but Retry or Give up still decide.
+    [Theory]
+    [InlineData("08-wrong-t0")]
+    [InlineData("23-wrong-two-artists")]
+    public void ShownOnTheWrongScreen(string scenario)
+    {
+        var count = -1;
+        IslandSta.Run(() =>
+        {
+            var (root, _, _) = IslandSnapshots.Compose(IslandSnapshots.Scenarios.Single(s => s.Name == scenario));
+            count = IslandSnapshots.Descendants<IslandIconButton>(root).Count();
+        });
+        Assert.Equal(1, count);
     }
 }
