@@ -274,14 +274,14 @@ public final class NotchPanelController {
     /// Only the shape takes the mouse; everywhere else the panel lets clicks through.
     private func updateMouse(at point: NSPoint) {
         guard let panel, let geometry else { return }
-        let inside = NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded, tall: ui.usesTallLayout).contains(point)
+        let inside = NotchLayout.hoverFrame(ui, geometry).contains(point)
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         ui.hoverChanged(inside)
         startCollapseTimerIfNeeded()
     }
 
     private func clickedShape(at point: NSPoint) {
-        guard let geometry, NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded, tall: ui.usesTallLayout).contains(point) else { return }
+        guard let geometry, NotchLayout.hoverFrame(ui, geometry).contains(point) else { return }
         let wasKey = panel?.isKeyWindow ?? false
         ui.clicked()
         // Only the first click (taking the keyboard) moves the cursor to the phase's field, and

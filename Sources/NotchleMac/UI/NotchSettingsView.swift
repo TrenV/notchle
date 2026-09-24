@@ -15,14 +15,16 @@ struct NotchSettingsView: View {
             Text("Play songs with")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(NotchPalette.secondaryText)
-            Picker("", selection: Binding(get: { model.settings.playerMode },
-                                          set: { ui.setPlayerMode($0) })) {
+            // Two per row: four labels side by side (a segmented picker) ran off both edges.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: NotchLayout.choiceSpacing),
+                                     count: NotchLayout.choiceColumns),
+                      spacing: NotchLayout.choiceSpacing) {
                 ForEach(NotchUIRules.playerChoices, id: \.mode) { choice in
-                    Text(choice.label).tag(choice.mode)
+                    PlayerChoiceButton(label: choice.label, selected: model.settings.playerMode == choice.mode) {
+                        ui.setPlayerMode(choice.mode)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.top, 5)
 
             if let connect, controls != .hidden {
@@ -44,11 +46,11 @@ struct NotchSettingsView: View {
             }
             Spacer(minLength: 6)
             HStack {
-                Text(model.playerName.isEmpty ? " " : "Now using \(model.playerName)")
+                Text(NotchLayout.settingsFooter(model.playerName))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(NotchPalette.tertiaryText)
-                    .lineLimit(1)
-                Spacer()
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
                 // The menu-bar ♪ item can sit hidden behind the notch, so quitting lives here too.
                 Button { NSApp.terminate(nil) } label: { Text("Quit Notchle") }
                     .buttonStyle(NotchButtonStyle(kind: .quiet))
@@ -97,10 +99,9 @@ private struct SpotifyConnectRow: View {
                         .disabled(!canConnect)
                 }
                 Text(busy ? "Finish the sign-in in your browser…" : (message ?? NotchUIRules.spotifyConnectHelp))
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(message != nil && !busy ? Color(red: 1, green: 0.55, blue: 0.45) : NotchPalette.tertiaryText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
             case .connected(let name):
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
@@ -109,12 +110,37 @@ private struct SpotifyConnectRow: View {
                     Text("Connected as \(name)")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(NotchPalette.primaryText)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button { connect.signOut() } label: { Text("Sign out") }
                         .buttonStyle(NotchButtonStyle(kind: .secondary))
                 }
             }
         }
+    }
+}
+
+/// One player choice: a capsule, green when chosen. Its label always fits on one line
+/// (checked in UILayoutTests), shrinking to 11 pt at most.
+private struct PlayerChoiceButton: View {
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? Color.black : NotchPalette.primaryText.opacity(0.85))
+                .lineLimit(1)
+                .minimumScaleFactor(0.92)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+                .frame(height: NotchLayout.choiceRowHeight)
+                .background(Capsule().fill(selected ? NotchPalette.green : Color.white.opacity(0.09)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

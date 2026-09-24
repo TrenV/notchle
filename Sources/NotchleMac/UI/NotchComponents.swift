@@ -250,17 +250,20 @@ struct VerdictChip: View {
                     }
                 }
                 .font(.system(size: 10, weight: .semibold))
+                // What the player typed, in full: wraps, then shrinks to 11 pt; the chip grows.
                 Text(guess.isEmpty ? "–" : guess)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(correct ? NotchPalette.primaryText : NotchPalette.primaryText.opacity(0.7))
                     .strikethrough(!correct, color: NotchPalette.red.opacity(0.7))
-                    .lineLimit(1)
+                    .lineLimit(NotchLayout.chipGuessLines)
+                    .minimumScaleFactor(NotchLayout.chipGuessMinScale)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
-        .frame(height: 40)
-        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, minHeight: 40, maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill((correct ? NotchPalette.green : NotchPalette.red).opacity(0.1)))
     }
