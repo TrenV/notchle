@@ -1,33 +1,42 @@
 import Foundation
 
-/// Forgiving but not gullible answer checking.
+/// Typo-tolerant answer checking: the gist must be right, the spelling need not be.
+/// Rules agreed with Tren on 2026-09-24.
 ///
-/// Both sides are normalized: case, diacritic and width folding ("Beyoncé" = "beyonce",
+/// Normalization (both sides): case, diacritic and width folding ("Beyoncé" = "beyonce",
 /// "ＢＴＳ" = "BTS"), "&" and "+" read as "and", apostrophes dropped ("ain't" = "aint"), other
-/// punctuation treated as a space, whitespace ignored ("Man child" = "Manchild"), and an
-/// optional leading "the".
+/// punctuation treated as a space, and an optional leading "the".
+///
+/// Matching a guess against an answer (a title, or one artist name):
+/// - Word by word, in order, every word covered: no missing and no extra words
+///   ("Midnight" is not "Midnight Sun"). Each answer word allows a Damerau-Levenshtein
+///   distance (a swap of two neighbouring letters is one edit) of 0 for 1-2 characters,
+///   1 for 3-5, 2 for 6-9 and 3 for 10 or more.
+/// - Spacing may differ ("Man child" = "Manchild"): a word may match several words joined up
+///   on the other side. Such a joined match allows only the tolerance of its shortest word,
+///   so a short word cannot silently vanish ("Karol" is not "KAROL G").
+/// - Numbers must be identical ("Summer of 68" is not "Summer of 69").
+/// - On top of that the whole string, spaces removed, needs a similarity
+///   (1 - distance / longer length) of at least 0.75, so typos cannot pile up.
 ///
 /// - Title: the guess may match the full title or the title without decorations: bracketed
 ///   parts ("(feat. X)", "[Remastered]", "(From \"Film\")"), a dash suffix (" - Radio Edit",
 ///   " - Live at…", " - 2015 Mix"), an unbracketed "feat./ft." tail, or a trailing
 ///   "+ / & / with / x <credited artist>" ("Stateside + Zara Larsson" → "Stateside").
-/// - Artist: the guess may match any one credited artist, or be a list ("Dave & Tems",
-///   "Dave, Tems") in which every name is a credited artist.
-/// - Fuzzy: Levenshtein similarity (1 - distance / longer length) >= 0.85 when the answer is
-///   longer than 4 characters; answers of 4 characters or fewer need an exact match. Numbers
-///   must match exactly ("Summer of 68" is not "Summer of 69"). No substring acceptance:
-///   "love" does not match "Crazy in Love". An empty guess is wrong.
+/// - Artists: ALL credited artists must be named, in any order, each with typos allowed, and
+///   nothing else. Between names only separators may appear (commas, "&", "and", "+", "x",
+///   "×", "/", "feat.", "ft.", "featuring", "with", or plain spaces). Names that themselves
+///   contain separators ("Simon & Garfunkel", "Earth, Wind & Fire", "Tyler, The Creator") work
+///   because the guess is segmented against the credited names, not split blindly.
+/// - An empty guess is wrong.
 public struct FuzzyAnswerJudge: AnswerJudging {
-    /// Levenshtein similarity needed for a fuzzy match. With 0.85, one typo is forgiven from 7
-    /// characters on, two from 14.
-    let similarityThreshold: Double
-    /// Answers this short need an exact match whatever the threshold (so "22" is never "23").
-    static let exactMatchMaxLength = 4
+    /// Minimum whole-string similarity, on top of the per-word tolerance.
+    let wholeStringThreshold: Double
 
-    public init() { self.init(similarityThreshold: 0.85) }
+    public init() { self.init(wholeStringThreshold: 0.75) }
 
-    init(similarityThreshold: Double) {
-        self.similarityThreshold = similarityThreshold
+    init(wholeStringThreshold: Double) {
+        self.wholeStringThreshold = wholeStringThreshold
     }
 
     public func judge(_ guess: Guess, against track: Track) -> Verdict {
@@ -101,34 +110,40 @@ public struct FuzzyAnswerJudge: AnswerJudging {
 
     // MARK: - Artist
 
+    /// Separator words allowed between artist names ("×", commas and "/" are already spaces).
+    static let artistSeparators: Set<String> = ["and", "x", "feat", "ft", "featuring", "with"]
+
     func artistMatches(_ guess: String, artists: [String]) -> Bool {
-        let credited = artists.flatMap { artist -> [[String]] in
+        // Each distinct credited artist, with a bracket-free variant ("SOLTO (FR)" → "SOLTO").
+        var credited: [[[String]]] = []
+        for artist in artists {
             let full = Self.tokens(artist)
             let unbracketed = Self.tokens(Self.removingBrackets(artist))
-            return full == unbracketed ? [full] : [full, unbracketed]
-        }.filter { !$0.isEmpty }
-        let matchesCredited = { (tokens: [String]) in credited.contains { matches(tokens, $0) } }
+            let variants = (full == unbracketed ? [full] : [full, unbracketed]).filter { !$0.isEmpty }
+            if !variants.isEmpty && !credited.contains(variants) { credited.append(variants) }
+        }
+        let words = Self.tokens(guess)
+        guard !words.isEmpty, !credited.isEmpty, credited.count < 64 else { return false }
 
-        let whole = Self.tokens(guess)
-        guard !whole.isEmpty else { return false }
-        if matchesCredited(whole) { return true }
-
-        // A list of names: every one must be credited.
-        let connectors: Set<String> = ["and", "x", "with", "feat", "ft", "featuring"]
-        var parts: [[String]] = []
-        for piece in guess.split(whereSeparator: { ",;/".contains($0) }) {
-            var current: [String] = []
-            for token in Self.tokens(String(piece)) {
-                if connectors.contains(token) {
-                    if !current.isEmpty { parts.append(current) }
-                    current = []
-                } else {
-                    current.append(token)
+        // reachable[j]: sets of credited artists (bitmasks) that words[..<j] can be read as,
+        // with only separators between them. Each artist is used at most once.
+        let all: UInt64 = (1 << UInt64(credited.count)) - 1
+        var reachable = [Set<UInt64>](repeating: [], count: words.count + 1)
+        reachable[0] = [0]
+        for j in 0..<words.count {
+            for mask in reachable[j] {
+                if Self.artistSeparators.contains(words[j]) { reachable[j + 1].insert(mask) }
+                for end in (j + 1)...words.count {
+                    let span = Array(words[j..<end])
+                    for (i, variants) in credited.enumerated() where mask & (1 << UInt64(i)) == 0 {
+                        if variants.contains(where: { matches(span, $0) }) {
+                            reachable[end].insert(mask | (1 << UInt64(i)))
+                        }
+                    }
                 }
             }
-            if !current.isEmpty { parts.append(current) }
         }
-        return parts.count >= 2 && parts.allSatisfy(matchesCredited)
+        return reachable[words.count].contains(all)
     }
 
     // MARK: - Normalization and matching
@@ -166,11 +181,58 @@ public struct FuzzyAnswerJudge: AnswerJudging {
         guard !gKey.isEmpty, !aKey.isEmpty else { return false }
         if gKey == aKey { return true }
         guard Self.numbers(g) == Self.numbers(a) else { return false }
+        guard Self.wordsAlign(g, a) else { return false }
         let gChars = Array(gKey), aChars = Array(aKey)
-        guard aChars.count > Self.exactMatchMaxLength else { return false }
-        let distance = Self.levenshtein(gChars, aChars)
-        let similarity = 1 - Double(distance) / Double(max(gChars.count, aChars.count))
-        return similarity >= similarityThreshold
+        let distance = Self.damerauLevenshtein(gChars, aChars)
+        return 1 - Double(distance) / Double(max(gChars.count, aChars.count)) >= wholeStringThreshold
+    }
+
+    /// Typos allowed in an answer word of `length` characters.
+    static func tolerance(_ length: Int) -> Int {
+        switch length {
+        case ...2: 0
+        case 3...5: 1
+        case 6...9: 2
+        default: 3
+        }
+    }
+
+    /// Every answer word is matched, in order, by guess words; one word may match several
+    /// joined words on the other side (spacing differences), with the shortest word's tolerance.
+    static func wordsAlign(_ guess: [String], _ answer: [String]) -> Bool {
+        let n = answer.count, m = guess.count
+        var ok = [[Bool]](repeating: [Bool](repeating: false, count: m + 1), count: n + 1)
+        ok[0][0] = true
+        for i in 0..<n {
+            for j in 0..<m where ok[i][j] {
+                // One answer word ↔ one or more guess words.
+                for k in 1...(m - j) {
+                    let pieces = Array(guess[j..<(j + k)])
+                    let shortest = min(answer[i].count, pieces.map(\.count).min()!)
+                    let allowed = k == 1 ? tolerance(answer[i].count) : tolerance(shortest)
+                    if withinDistance(pieces.joined(), answer[i], allowed) { ok[i + 1][j + k] = true }
+                }
+                // Several answer words ↔ one guess word.
+                if n - i >= 2 {
+                    for k in 2...(n - i) {
+                        let pieces = Array(answer[i..<(i + k)])
+                        let shortest = min(guess[j].count, pieces.map(\.count).min()!)
+                        if withinDistance(guess[j], pieces.joined(), tolerance(shortest)) {
+                            ok[i + k][j + 1] = true
+                        }
+                    }
+                }
+            }
+        }
+        return ok[n][m]
+    }
+
+    private static func withinDistance(_ a: String, _ b: String, _ allowed: Int) -> Bool {
+        if a == b { return true }
+        guard allowed > 0 else { return false }
+        let x = Array(a), y = Array(b)
+        guard abs(x.count - y.count) <= allowed else { return false }
+        return damerauLevenshtein(x, y) <= allowed
     }
 
     private static func dropLeadingThe(_ tokens: [String]) -> [String] {
@@ -183,19 +245,22 @@ public struct FuzzyAnswerJudge: AnswerJudging {
             .map(String.init)
     }
 
-    static func levenshtein(_ a: [Character], _ b: [Character]) -> Int {
+    /// Optimal-string-alignment distance: insert, delete, substitute, or swap two neighbours.
+    static func damerauLevenshtein(_ a: [Character], _ b: [Character]) -> Int {
         if a.isEmpty { return b.count }
         if b.isEmpty { return a.count }
-        var previous = Array(0...b.count)
-        var current = [Int](repeating: 0, count: b.count + 1)
+        var d = [[Int]](repeating: [Int](repeating: 0, count: b.count + 1), count: a.count + 1)
+        for i in 0...a.count { d[i][0] = i }
+        for j in 0...b.count { d[0][j] = j }
         for i in 1...a.count {
-            current[0] = i
             for j in 1...b.count {
                 let cost = a[i - 1] == b[j - 1] ? 0 : 1
-                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+                d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+                if i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1] {
+                    d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+                }
             }
-            swap(&previous, &current)
         }
-        return previous[b.count]
+        return d[a.count][b.count]
     }
 }
