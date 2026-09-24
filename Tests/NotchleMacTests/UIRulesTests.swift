@@ -64,6 +64,7 @@ import NotchleCore
         #expect(k(.tab, .playingSnippet(tierIndex: 0)) == .expand)
         #expect(k(.commandShiftR, guessing) == .perform)          // replay without opening
         #expect(k(.commandShiftR, .correct(tierIndex: 0)) == .perform)
+        #expect(k(.commandShiftS, guessing) == .perform)          // skip without opening
     }
 
     @Test func collapsedIndicatorPerPhase() {
@@ -155,6 +156,35 @@ import NotchleCore
         }
     }
 
+    @Test func skipSecondsIsTheNextTierAndNilAtTheLast() {
+        let c = GameConfig()
+        #expect(NotchUIRules.skipSeconds(.playingSnippet(tierIndex: 0), c) == 10)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 1), c) == 15)
+        #expect(NotchUIRules.skipSeconds(.playingSnippet(tierIndex: 2), c) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 2), c) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 0), GameConfig(tiers: [2, 4])) == 4)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 1), GameConfig(tiers: [2, 4])) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 0), GameConfig(tiers: [])) == 10)  // engine fallback
+        for p in Self.allPhases where !NotchUIRules.showsGuessFields(p) {
+            #expect(NotchUIRules.skipSeconds(p, c) == nil, "\(p)")
+        }
+    }
+
+    @Test func commandShiftSSkipsOnlyWhereALongerTierIsLeft() {
+        func s(_ p: GamePhase, _ c: GameConfig = GameConfig()) -> UICommand? {
+            NotchUIRules.command(for: .commandShiftS, phase: p, focused: .artist, config: c)
+        }
+        #expect(s(.playingSnippet(tierIndex: 0)) == .send(.skip))
+        #expect(s(.guessing(tierIndex: 1)) == .send(.skip))
+        #expect(s(.guessing(tierIndex: 2)) == nil)                          // never a hidden Give up
+        #expect(s(.playingSnippet(tierIndex: 1), GameConfig(tiers: [5, 10])) == nil)
+        for p in Self.allPhases where !NotchUIRules.showsGuessFields(p) {
+            #expect(s(p) == nil, "\(p)")
+        }
+        #expect(NotchUIRules.command(for: .commandShiftS, phase: .guessing(tierIndex: 0), focused: nil,
+                                     settingsOpen: true) == nil)
+    }
+
     @Test func restartLabelPerPhase() {
         #expect(NotchUIRules.restartLabel(.playingSnippet(tierIndex: 1)) == "Replay snippet")
         #expect(NotchUIRules.restartLabel(.guessing(tierIndex: 0)) == "Replay snippet")
@@ -186,6 +216,9 @@ import NotchleCore
         #expect(C.keyInput(keyCode: 15, characters: "R", modifiers: .shift) == nil)   // typing "R"
         #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: [.command, .option]) == nil)
         #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: [.command, .shift, .control]) == nil)
+        #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: [.command, .shift]) == .commandShiftS)
+        #expect(C.keyInput(keyCode: 1, characters: "s", modifiers: .command) == nil)             // ⌘S: not ours
+        #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: .shift) == nil)               // typing "S"
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: .shift) == nil)
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: [.capsLock, .numericPad]) == .returnKey)
         #expect(C.editAction(keyCode: 9, characters: "v", modifiers: .command) == #selector(NSText.paste(_:)))
@@ -207,6 +240,11 @@ import NotchleCore
         // Restart (replay) from guessing: same track, keep the guess and the focus.
         #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 0), to: .playingSnippet(tierIndex: 0)) == .none)
         #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 2), to: .playingSnippet(tierIndex: 2)) == .none)
+        // Skip: next tier of the same track, keep the guess and the focus.
+        #expect(NotchUIRules.fieldTransition(from: .playingSnippet(tierIndex: 0), to: .playingSnippet(tierIndex: 1)) == .none)
+        #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 1), to: .playingSnippet(tierIndex: 2)) == .none)
+        // A new track from the last-tier snippet still clears (tier 0 is never a skip target).
+        #expect(NotchUIRules.fieldTransition(from: .playingSnippet(tierIndex: 2), to: .playingSnippet(tierIndex: 0)) == .clearAndFocusTitle)
     }
 
     @Test func labels() {

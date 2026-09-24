@@ -204,6 +204,16 @@ final class DemoGame {
             log("phase → \(s.phase)")
         case (.retry, .wrong(let tier, _)):
             playSnippet(tier: tier + 1)
+        case (.skip, .playingSnippet(let tier)), (.skip, .guessing(let tier)):
+            if tier + 1 < s.config.tiers.count {
+                snippetToken += 1
+                playSnippet(tier: tier + 1)
+            } else {
+                snippetToken += 1
+                s.results.append(.missed)
+                model.state = s
+                set(.revealed(verdict: nil))
+            }
         case (.restart, .playingSnippet(let tier)), (.restart, .guessing(let tier)):
             playSnippet(tier: tier)
         case (.restart, .correct), (.restart, .revealed):

@@ -129,6 +129,7 @@ and `%APPDATA%\Notchle`.
 - **Esc** gives up on this song.
 - **⌘R** (macOS) / **Ctrl+R** (Windows) retries with a longer snippet after a wrong guess.
 - **⌘⇧R** (macOS) / **Ctrl+Shift+R** (Windows), or **↺**, replays the snippet without using a try, or restarts the song from 0:00 once it's answered.
+- **⌘⇧S** (macOS) / **Ctrl+Shift+S** (Windows), or **Skip**, uses up this try without guessing and plays the next, longer snippet.
 - Typos are fine. The artist field needs **every** credited artist, in any order; the
   placeholder tells you how many.
 - The notch or island only takes the keyboard after you click it. It closes when your mouse

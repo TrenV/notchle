@@ -11,6 +11,8 @@ public enum UIKeyInput: Hashable, Sendable {
     case returnKey, escape, tab, backTab, commandR
     /// ⌘⇧R: restart (replay the snippet, or the whole song once it is answered).
     case commandShiftR
+    /// ⌘⇧S: skip to the next, longer tier.
+    case commandShiftS
 }
 
 /// What a key means in the current phase.
@@ -74,6 +76,19 @@ public enum NotchUIRules {
 
     public static func canRestart(_ phase: GamePhase) -> Bool { restartLabel(phase) != nil }
 
+    /// Seconds of the tier a Skip leads to, or nil where Skip is hidden: outside
+    /// playingSnippet/guessing, and at the last tier (there Skip would be a plain Give up).
+    public static func skipSeconds(_ phase: GamePhase, _ config: GameConfig) -> Double? {
+        switch phase {
+        case .playingSnippet(let tier), .guessing(let tier):
+            // Same fallback as the engine when no tiers are configured.
+            let tiers = config.tiers.isEmpty ? GameConfig().tiers : config.tiers
+            return tier + 1 < tiers.count ? tiers[tier + 1] : nil
+        default:
+            return nil
+        }
+    }
+
     /// Phases that show the Spotify URL field.
     public static func showsURLField(_ phase: GamePhase) -> Bool {
         switch phase {
@@ -113,7 +128,8 @@ public enum NotchUIRules {
 
     /// What a key press on the key-but-collapsed panel does.
     public enum CollapsedKeyBehavior: Hashable, Sendable {
-        /// Run the phase's command without opening (Return = Next, ⌘R = Retry, ⌘⇧R = Restart).
+        /// Run the phase's command without opening (Return = Next, ⌘R = Retry, ⌘⇧R = Restart,
+        /// ⌘⇧S = Skip).
         case perform
         /// Open the panel; nothing else (never submit a guess blind).
         case expand
@@ -129,7 +145,7 @@ public enum NotchUIRules {
         case nil: return fields ? .expandAndReplay : .ignore
         case .returnKey?: return fields ? .expand : .perform
         case .tab?, .backTab?: return fields ? .expand : .ignore
-        case .commandR?, .commandShiftR?: return .perform
+        case .commandR?, .commandShiftR?, .commandShiftS?: return .perform
         case .escape?: return .ignore       // never give up on a panel you cannot see
         }
     }
@@ -252,6 +268,13 @@ public enum NotchUIRules {
             if case .playingSnippet(let t) = old, t == tier, case .guessing = new { return .none }
             // Guessing → snippet of the same tier is a replay (restart): same track, same guess.
             if case .guessing(let t) = old, t == tier, case .playingSnippet = new { return .none }
+            // Snippet/guessing → snippet of the next tier is a skip: same track, same guess.
+            if case .playingSnippet = new {
+                switch old {
+                case .playingSnippet(let t)?, .guessing(let t)?: if t + 1 == tier { return .none }
+                default: break
+                }
+            }
             if case .wrong(_, let verdict) = old, tier > 0 {
                 return .keepAndFocus(verdict.titleCorrect ? .artist : .title)
             }
@@ -261,9 +284,10 @@ public enum NotchUIRules {
         }
     }
 
-    /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content.
+    /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content. `config`
+    /// decides whether a longer tier is left to skip to.
     public static func command(for key: UIKeyInput, phase: GamePhase, focused: UIField?,
-                               settingsOpen: Bool = false) -> UICommand? {
+                               settingsOpen: Bool = false, config: GameConfig = GameConfig()) -> UICommand? {
         if settingsOpen {
             return key == .escape ? .closeSettings : nil
         }
@@ -283,6 +307,8 @@ public enum NotchUIRules {
             return nil
         case .commandShiftR:
             return canRestart(phase) ? .send(.restart) : nil
+        case .commandShiftS:
+            return skipSeconds(phase, config) != nil ? .send(.skip) : nil
         case .escape:
             return isGuessPhase(phase) ? .send(.giveUp) : .collapse
         case .tab, .backTab:

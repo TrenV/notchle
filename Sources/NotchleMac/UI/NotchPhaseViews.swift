@@ -144,6 +144,14 @@ struct GuessView: View {
             HStack {
                 Button { ui.model.send(.giveUp) } label: { KeyHintLabel(title: "Give up", hint: "esc") }
                     .buttonStyle(NotchButtonStyle(kind: .quiet))
+                if let skip = NotchUIRules.skipSeconds(ui.phase, config) {
+                    Button { ui.skip() } label: {
+                        KeyHintLabel(title: "Skip · \(NotchUIRules.secondsLabel(skip))", hint: "⌘⇧S")
+                    }
+                    .buttonStyle(NotchButtonStyle(kind: .secondary))
+                    .help("Use up this try and hear \(NotchUIRules.secondsLabel(skip))")
+                    .padding(.leading, 10)
+                }
                 Spacer()
                 Button { ui.submitGuess() } label: { KeyHintLabel(title: "Submit", hint: "⏎") }
                     .buttonStyle(NotchButtonStyle(kind: .primary))

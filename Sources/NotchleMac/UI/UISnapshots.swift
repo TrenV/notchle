@@ -74,6 +74,8 @@ public enum UISnapshots {
             Scenario(name: "34-collapsed-error", phase: .error(message: "x"), expanded: false),
             Scenario(name: "35-pill-collapsed-guessing", phase: .guessing(tierIndex: 0), expanded: false, hasNotch: false),
             Scenario(name: "21-pill-guessing", phase: .guessing(tierIndex: 1), hasNotch: false, title: "Glass"),
+            // Last tier: no Skip (it would be a Give up).
+            Scenario(name: "36-guessing-t2", phase: .guessing(tierIndex: 2), title: "Paper Lanterns", artist: "Midnight"),
         ]
     }
 

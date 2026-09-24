@@ -38,6 +38,7 @@ import NotchleCore
         let texts = [NotchUIRules.artistPlaceholder(artistCount: NotchUIRules.artistCount(s)),
                      NotchUIRules.progressText(s),
                      NotchUIRules.restartLabel(s.phase) ?? "",
+                     NotchUIRules.secondsLabel(NotchUIRules.skipSeconds(s.phase, s.config) ?? 0),
                      NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false),
                                              artistCount: NotchUIRules.artistCount(s)) ?? ""]
         for t in texts {

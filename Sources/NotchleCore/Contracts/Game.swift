@@ -19,6 +19,9 @@ import Foundation
 //   costs no attempt; after `correct`/`revealed` it plays the whole song again from 0:00.
 //   Not in `wrong`: Retry is the way on there, and a free replay would allow unlimited
 //   guesses at the same tier.
+// - Skip (Tren, 2026-09-24: "forfeit 1 chance to get the longer version, over completely
+//   forfeiting by giving up"): while guessing, give up this attempt without guessing and hear
+//   the next, longer tier. At the last tier it is `giveUp`. Not in `wrong` (Retry is that).
 
 public enum GamePhase: Sendable, Hashable {
     /// Nothing loaded. UI asks for a Spotify URL.
@@ -90,6 +93,10 @@ public enum GameAction: Sendable, Hashable {
     case retry
     /// From `.playingSnippet`, `.guessing` or `.wrong`: reveal, counts as missed.
     case giveUp
+    /// From playingSnippet/guessing: give up this attempt without guessing and play the next,
+    /// longer tier. At the last tier it behaves like giveUp. Ignored elsewhere (in wrong, Retry
+    /// already does this).
+    case skip
     /// Replay the current snippet from its start (playingSnippet/guessing: doesn't use up an
     /// attempt), or restart the whole song from 0:00 (correct/revealed). Ignored elsewhere.
     case restart

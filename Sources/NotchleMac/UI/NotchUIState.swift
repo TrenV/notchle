@@ -193,6 +193,7 @@ public final class NotchUIState {
         case .submitGuess: submitGuess()
         case .load: load()
         case .send(.restart): restart()
+        case .send(.skip): skip()
         case .send(let action): model.send(action)
         case .collapse:
             collapse()
@@ -236,6 +237,14 @@ public final class NotchUIState {
         model.send(.restart)
         // playingSnippet → playingSnippet is no phase change, so restart the progress here.
         if case .playingSnippet = before, case .playingSnippet = phase { snippetStart = now }
+    }
+
+    /// Forfeits this attempt for the next, longer tier. The typed guess and the focus stay.
+    /// Inert at the last tier: the UI never turns a Skip into a Give up.
+    public func skip() {
+        guard NotchUIRules.skipSeconds(phase, model.state.config) != nil else { return }
+        if let field = focusedField, NotchUIRules.showsGuessFields(phase) { requestFocus(field) }
+        model.send(.skip)
     }
 
     public func setPlayerMode(_ mode: PlayerMode) {

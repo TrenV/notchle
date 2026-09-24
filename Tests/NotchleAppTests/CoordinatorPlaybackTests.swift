@@ -97,3 +97,55 @@ struct OneTrackSource: TrackSource {
     coordinator.send(.reset)
     await coordinator.drainPlayback()
 }
+
+/// A snippet that finishes although it was cancelled (the cancel came as it ended): only the
+/// coordinator's cancellation check can keep its `snippetFinished` from counting.
+@MainActor
+final class LateFinishingPlayer: Player {
+    nonisolated let displayName = "fake"
+    nonisolated let playsFullTrack = true
+    var log: [String] = []
+    let snippetLength: Duration
+
+    init(snippetLength: Duration) { self.snippetLength = snippetLength }
+
+    func playSnippet(of track: Track, from start: Double, seconds: Double) async throws {
+        log.append("snippet:\(seconds)")
+        let end = ContinuousClock.now.advanced(by: snippetLength)
+        while ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(5)) }
+        log.append("returned:\(seconds)")
+    }
+
+    func continuePlaying() async throws { log.append("continue") }
+    func restartTrack(_ track: Track) async throws { log.append("restart:\(track.id)") }
+    func stop() async { log.append("stop") }
+}
+
+@MainActor
+@Test func skippedSnippetFinishingLateDoesNotEndTheLongerOne() async throws {
+    let player = LateFinishingPlayer(snippetLength: .milliseconds(400))
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let coordinator = AppCoordinator(source: OneTrackSource(), store: ProgressStore(directory: dir), makePlayer: { _ in player })
+    func waitFor(_ entry: String) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !player.log.contains(entry), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(2)) }
+        #expect(player.log.contains(entry), "log: \(player.log)")
+    }
+
+    coordinator.send(.load(SourceRef(kind: .playlist, id: "p")))
+    try await waitFor("snippet:5.0")
+    coordinator.send(.skip)
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 1))
+
+    // The 5s snippet returns normally after the skip cancelled it; the 10s one then starts.
+    try await waitFor("snippet:10.0")
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 1), "the skipped snippet ended the new one")
+
+    try await waitFor("returned:10.0")
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(coordinator.model.state.phase == .guessing(tierIndex: 1))
+    #expect(coordinator.model.state.results.isEmpty)
+    coordinator.send(.reset)
+    await coordinator.drainPlayback()
+}

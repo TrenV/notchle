@@ -118,6 +118,40 @@ import NotchleCore
         #expect(sent.isEmpty)
     }
 
+    @Test func skipKeepsTheGuessAndTheFocus() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { action in
+            sent.append(action)
+            if action == .skip { model.state.phase = .playingSnippet(tierIndex: 1) }
+        }
+        ui.requestFocus(.title)
+        ui.focusedField = .artist
+        ui.titleText = "Paper"
+        ui.artistText = "Kit"
+        let old = model.state
+
+        ui.perform(.send(.skip))
+        #expect(sent == [.skip])
+        ui.stateDidChange(from: old, to: model.state, now: t0)
+        #expect(ui.titleText == "Paper" && ui.artistText == "Kit")
+        #expect(ui.requestedFocus == .artist)
+        #expect(ui.snippetStart == t0)                 // the longer snippet's progress starts now
+    }
+
+    @Test func skipDoesNothingAtTheLastTierOrOutsideGuessing() {
+        for phase in [GamePhase.guessing(tierIndex: 2), .playingSnippet(tierIndex: 2),
+                      .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)),
+                      .correct(tierIndex: 0)] {
+            let (model, ui) = make(phase)
+            var sent: [GameAction] = []
+            model.send = { sent.append($0) }
+            ui.skip()
+            ui.perform(.send(.skip))
+            #expect(sent.isEmpty, "\(phase)")
+        }
+    }
+
     // MARK: Auto-close
 
     let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)
