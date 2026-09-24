@@ -163,12 +163,14 @@ public final class NotchPanelController {
     // MARK: Keyboard
 
     /// Makes the panel key (on a click on the notch) and re-applies the focus request.
-    public func takeKeyboard() {
+    /// `applyFocus: false` leaves the cursor wherever AppKit puts it (a click on a text field
+    /// must focus *that* field, not the one the phase asked for).
+    public func takeKeyboard(applyFocus: Bool = true) {
         guard let panel else { return }
         panel.orderFrontRegardless()
         panel.makeKey()
         if keyboardStrategy == .makeKeyAndActivate { NSApp.activate() }
-        ui.requestFocus(ui.requestedFocus)
+        if applyFocus { ui.requestFocus(ui.requestedFocus) }
         // Log once focus has settled (the field may only appear with the new phase view).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, let panel = self.panel else { return }
@@ -275,8 +277,22 @@ public final class NotchPanelController {
 
     private func clickedShape(at point: NSPoint) {
         guard let geometry, NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded).contains(point) else { return }
+        let wasKey = panel?.isKeyWindow ?? false
         ui.clicked()
-        takeKeyboard()
+        // Only the first click (taking the keyboard) moves the cursor to the phase's field, and
+        // never when the click itself lands on a text field: that field gets the focus.
+        takeKeyboard(applyFocus: !wasKey && !clickHitsTextField(at: point))
+    }
+
+    private func clickHitsTextField(at screenPoint: NSPoint) -> Bool {
+        guard let panel, let content = panel.contentView else { return false }
+        let local = content.convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
+        var view = content.hitTest(local)
+        while let v = view {
+            if v is NSTextField || v is NSTextView { return true }
+            view = v.superview
+        }
+        return false
     }
 
     /// Polls the pure auto-collapse rule while a collapse is pending (grace period or typing).

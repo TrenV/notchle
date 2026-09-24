@@ -91,7 +91,7 @@ public static class IslandRules
     /// Tooltip / accessible name of the ↺ button, null where it is hidden.
     public static string? RestartLabel(GamePhase phase) => phase switch
     {
-        GamePhase.PlayingSnippet or GamePhase.Guessing => IslandScreen.Guess.RestartLabel,
+        GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Wrong => IslandScreen.Guess.RestartLabel,
         GamePhase.Correct or GamePhase.Revealed => IslandScreen.Answer.RestartLabel,
         _ => null,
     };

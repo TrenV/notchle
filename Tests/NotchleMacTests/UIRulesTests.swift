@@ -144,7 +144,8 @@ import NotchleCore
         #expect(r(.guessing(tierIndex: 2)) == .send(.restart))
         #expect(r(.correct(tierIndex: 1)) == .send(.restart))
         #expect(r(.revealed(verdict: nil)) == .send(.restart))
-        for p in [GamePhase.idle, .loading, .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)),
+        #expect(r(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))) == .send(.restart))
+        for p in [GamePhase.idle, .loading,
                   .setComplete(correctCount: 20), .setFailed(correctCount: 3), .exhausted, .error(message: "e")] {
             #expect(r(p) == nil, "\(p)")
         }
@@ -226,8 +227,8 @@ import NotchleCore
         #expect(NotchUIRules.restartLabel(.guessing(tierIndex: 0)) == "Replay snippet")
         #expect(NotchUIRules.restartLabel(.correct(tierIndex: 0)) == "Restart song")
         #expect(NotchUIRules.restartLabel(.revealed(verdict: Verdict(titleCorrect: true, artistCorrect: false))) == "Restart song")
-        #expect(NotchUIRules.restartLabel(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: true, artistCorrect: false))) == nil)
-        #expect(Self.allPhases.filter(NotchUIRules.canRestart).count == 4)
+        #expect(NotchUIRules.restartLabel(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: true, artistCorrect: false))) == "Replay snippet")
+        #expect(Self.allPhases.filter(NotchUIRules.canRestart).count == 5)
     }
 
     @Test func tabMovesBetweenTitleAndArtist() {

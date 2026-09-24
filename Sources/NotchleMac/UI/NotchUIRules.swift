@@ -73,7 +73,7 @@ public enum NotchUIRules {
     /// Hidden in `wrong`: Retry is the way on there (a free replay would be a free guess).
     public static func restartLabel(_ phase: GamePhase) -> String? {
         switch phase {
-        case .playingSnippet, .guessing: "Replay snippet"
+        case .playingSnippet, .guessing, .wrong: "Replay snippet"
         case .correct, .revealed: "Restart song"
         default: nil
         }

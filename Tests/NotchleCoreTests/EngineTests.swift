@@ -388,12 +388,18 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         #expect(e.state.results == [.correct(tierIndex: 0), .missed])
     }
 
-    @Test func restartIsIgnoredInWrongAndEveryOtherPhase() {
+    @Test func restartInWrongReplaysTheSnippetButStaysWrong() throws {
         var wrong = engine()
         _ = wrong.send(wrongGuess)
         let wrongState = wrong.state
-        #expect(wrong.send(.restart) == [])
+        let track = try #require(wrong.state.currentTrack)
+        #expect(wrong.send(.restart) == [.playSnippet(track, start: 0, seconds: 5)])
+        #expect(wrong.state == wrongState)          // still wrong: Retry or Give up decide
+        #expect(wrong.send(.snippetFinished) == [])  // the replay's finish changes nothing
         #expect(wrong.state == wrongState)
+    }
+
+    @Test func restartIsIgnoredInEveryOtherPhase() {
 
         var idle = GameEngine(judge: IDJudge(), seed: 1)
         let idleState = idle.state

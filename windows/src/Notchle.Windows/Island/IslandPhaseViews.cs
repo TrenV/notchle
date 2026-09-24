@@ -230,7 +230,8 @@ internal sealed class GuessView : PhaseView
     }
 }
 
-/// The ↺ button of the guess and answer views (not in Wrong: Retry is the way on from there).
+/// The ↺ button of the guess, wrong and answer views. In Wrong it only replays the snippet;
+/// Retry or Give up still decide.
 internal static class RestartButton
 {
     public static IslandIconButton Create(string label, IslandContext ctx) =>
@@ -252,7 +253,8 @@ internal sealed class WrongView : PhaseView
         _screen = screen;
         var dots = new AttemptDotsView();
         dots.Update(screen.Attempts);
-        Top(Ui.Bar(Ui.Row(8, Icons.CrossOctagon(IslandTheme.RedBrush), Ui.Text(screen.Headline, 12.5, IslandTheme.Primary, FontWeights.SemiBold)), dots, 18));
+        var replay = RestartButton.Create(IslandScreen.Guess.RestartLabel, ctx);
+        Top(Ui.Bar(Ui.Row(8, Icons.CrossOctagon(IslandTheme.RedBrush), Ui.Text(screen.Headline, 12.5, IslandTheme.Primary, FontWeights.SemiBold)), Ui.Row(6, replay, dots), 22));
         var chips = new Grid();
         chips.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         chips.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });

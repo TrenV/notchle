@@ -73,6 +73,13 @@ public sealed class GameEngine
             case GameAction.Restart when phase is GamePhase.Guessing guessing && guessing.TierIndex < Tiers.Count:
                 return PlaySnippet(guessing.TierIndex);
 
+            // In Wrong: hear the same snippet again but stay on the wrong screen (Retry or Give up
+            // still decide), so a replay is never a free extra guess. Its SnippetFinished is ignored.
+            case GameAction.Restart when phase is GamePhase.Wrong wrong && wrong.TierIndex < Tiers.Count:
+                return State.CurrentTrack is { } replay
+                    ? [new GameEffect.PlaySnippet(replay, State.Config.SnippetStart, Tiers[wrong.TierIndex])]
+                    : None;
+
             case GameAction.Restart when phase is GamePhase.Correct or GamePhase.Revealed:
                 return State.CurrentTrack is { } track ? [new GameEffect.RestartTrack(track)] : None;
 

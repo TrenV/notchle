@@ -324,7 +324,12 @@ public class EngineTests
 
         var wrong = Engine();
         wrong.Send(WrongGuess);
-        AssertIgnored(wrong); // a replay here would be a free guess at the same tier
+        var wrongState = wrong.State;
+        var replay = Assert.IsType<GameEffect.PlaySnippet>(Assert.Single(wrong.Send(new Restart())));
+        Assert.Equal(5, replay.Seconds);
+        Assert.Same(wrongState, wrong.State);            // still Wrong: Retry or Give up decide
+        Assert.Empty(wrong.Send(new SnippetFinished())); // the replay's finish changes nothing
+        Assert.Same(wrongState, wrong.State);
 
         var error = Engine();
         error.Send(new PlaybackFailed("x"));

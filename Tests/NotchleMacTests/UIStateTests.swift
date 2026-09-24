@@ -109,13 +109,12 @@ import NotchleCore
         #expect(ui.snippetStart == t0)        // no snippet: nothing to animate
     }
 
-    @Test func restartIsIgnoredInWrong() {
+    @Test func restartIsOfferedInWrong() {
         let (model, ui) = make(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: true)))
         var sent: [GameAction] = []
         model.send = { sent.append($0) }
         ui.restart()
-        ui.perform(.send(.restart))
-        #expect(sent.isEmpty)
+        #expect(sent == [.restart])
     }
 
     @Test func skipKeepsTheGuessAndTheFocus() {

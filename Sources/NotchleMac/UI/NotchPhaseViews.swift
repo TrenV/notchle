@@ -176,11 +176,12 @@ struct WrongView: View {
                 Image(systemName: "xmark.octagon.fill").foregroundStyle(NotchPalette.red)
                 Text(verdict.titleCorrect || verdict.artistCorrect ? "Half right" : "Not quite")
                 Spacer()
+                RestartButton(ui: ui)
                 AttemptDots(tiers: config.tiers, current: tier, currentMissed: true)
             }
             .font(.system(size: 12.5, weight: .semibold))
             .foregroundStyle(NotchPalette.primaryText)
-            .frame(height: 18)
+            .frame(height: 22)
             HStack(spacing: 8) {
                 VerdictChip(label: "Title", correct: verdict.titleCorrect, guess: ui.titleText)
                 VerdictChip(label: "Artist(s)", correct: verdict.artistCorrect, guess: ui.artistText,

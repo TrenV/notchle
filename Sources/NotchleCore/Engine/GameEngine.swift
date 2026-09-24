@@ -70,6 +70,12 @@ public struct GameEngine: Sendable {
         case let (.restart, .playingSnippet(tier)), let (.restart, .guessing(tier)):
             return playSnippet(tier: tier)
 
+        // In `wrong`: hear the same snippet again but stay on the wrong screen (Retry or Give up
+        // still decide), so a replay is never a free extra guess. Its snippetFinished is ignored.
+        case let (.restart, .wrong(tier, _)):
+            guard let track = state.currentTrack, tiers.indices.contains(tier) else { return [] }
+            return [.playSnippet(track, start: state.config.snippetStart, seconds: tiers[tier])]
+
         case (.restart, .correct), (.restart, .revealed):
             guard let track = state.currentTrack else { return [] }
             return [.restartTrack(track)]

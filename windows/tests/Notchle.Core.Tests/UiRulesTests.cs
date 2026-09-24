@@ -100,7 +100,7 @@ public class UiRulesTests
         Assert.Equal("Replay snippet", IslandRules.RestartLabel(new GamePhase.Guessing(0)));
         Assert.Equal("Restart song", IslandRules.RestartLabel(new GamePhase.Correct(1)));
         Assert.Equal("Restart song", IslandRules.RestartLabel(new GamePhase.Revealed(new Verdict(false, true))));
-        Assert.Null(IslandRules.RestartLabel(new GamePhase.Wrong(0, new Verdict(true, false))));
+        Assert.Equal("Replay snippet", IslandRules.RestartLabel(new GamePhase.Wrong(0, new Verdict(true, false))));
         Assert.Null(IslandRules.RestartLabel(new GamePhase.Idle()));
     }
 
