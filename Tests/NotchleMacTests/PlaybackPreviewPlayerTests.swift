@@ -60,7 +60,8 @@ import Testing
         let position = try #require(player.currentTime)
         let played = position - 1
         #expect(abs(played - 0.6) < 0.15, "played \(played)s of audio")
-        #expect(wall >= 0.6 && wall < 1.5, "call took \(wall)s")
+        // Upper bound only catches hangs: CI runners take >1.5s to load the clip.
+        #expect(wall >= 0.6 && wall < 5, "call took \(wall)s")
     }
 
     @Test func startIsPulledBackSoTheSnippetFits() async throws {
