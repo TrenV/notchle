@@ -65,6 +65,25 @@ public sealed class IslandDemoGame
         };
     }
 
+    /// A set-end state (SetComplete / SetFailed) whose listing has <paramref name="newAvailable"/>
+    /// tracks beyond the set, so the "N new songs" choice shows; failed sets miss every third track.
+    public static GameState SetEndState(bool complete, int newAvailable)
+    {
+        var results = Enumerable.Range(0, Tracks.Count)
+            .Select(i => complete || i % 3 != 0 ? (TrackOutcome)new TrackOutcome.Correct(0) : new TrackOutcome.Missed())
+            .ToList();
+        var correct = results.Count(r => r is TrackOutcome.Correct);
+        var extra = Enumerable.Range(0, newAvailable)
+            .Select(i => new Track($"demo-new{i}", $"spotify:track:demo-new{i}", $"New song {i + 1}", ["Demo Artist"], 200_000, null));
+        var s = SampleState(complete ? new GamePhase.SetComplete(correct) : new GamePhase.SetFailed(correct));
+        return s with
+        {
+            Listing = s.Listing! with { Tracks = [.. Tracks, .. extra] },
+            Results = results,
+            ClearedTrackIds = Tracks.Where((_, i) => results[i] is TrackOutcome.Correct).Select(t => t.Id).ToHashSet(),
+        };
+    }
+
     public Track? Current => _get().CurrentTrack;
 
     public void SetPhase(GamePhase phase)
@@ -169,13 +188,27 @@ public sealed class IslandDemoGame
                 else
                     PlaySnippet(0);
                 break;
-            case (GameAction.NextSet, GamePhase.SetComplete):
+            case (GameAction.NextSet, GamePhase.SetComplete or GamePhase.SetFailed):
+                Send(new GameAction.StartSet(SetChoice.AllNew));
+                break;
+            case (GameAction.ReplaySet, GamePhase.SetComplete or GamePhase.SetFailed):
+                Send(new GameAction.StartSet(SetChoice.Replay));
+                break;
+            // The demo listing is one set, so there is never anything new: AllNew is Exhausted and
+            // KeepMisses keeps only the misses.
+            case (GameAction.StartSet { Choice: SetChoice.AllNew }, GamePhase.SetComplete or GamePhase.SetFailed):
                 SetPhase(new GamePhase.Exhausted());
                 break;
-            case (GameAction.ReplaySet, GamePhase.SetFailed):
-                _set(s with { Index = 0, Results = Array.Empty<TrackOutcome>(), CurrentSet = s.CurrentSet.Reverse().ToList() });
+            case (GameAction.StartSet start, GamePhase.SetComplete or GamePhase.SetFailed):
+            {
+                var next = start.Choice == SetChoice.Replay
+                    ? s.CurrentSet.Reverse().ToList()
+                    : s.CurrentSet.Where((_, i) => i >= s.Results.Count || s.Results[i] is not TrackOutcome.Correct).ToList();
+                if (next.Count == 0) { SetPhase(new GamePhase.Exhausted()); break; }
+                _set(s with { Index = 0, Results = Array.Empty<TrackOutcome>(), CurrentSet = next });
                 PlaySnippet(0);
                 break;
+            }
             case (GameAction.Reset, _):
                 _snippetToken++;
                 _set(s with

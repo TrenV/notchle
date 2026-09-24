@@ -59,7 +59,17 @@ public abstract record IslandScreen
         public const string RestartLabel = "Restart song";
     }
 
-    public sealed record SetEnd(bool Complete, int Correct, int Total, string Headline, string Body, string ButtonLabel) : IslandScreen;
+    /// SetComplete / SetFailed. <paramref name="Primary"/> is Enter; Secondary / Tertiary are
+    /// null when not offered (no new songs left: only Replay).
+    public sealed record SetEnd(bool Complete, int Correct, int Total, string Headline, string Body,
+        SetEndOption Primary, SetEndOption? Secondary = null, SetEndOption? Tertiary = null) : IslandScreen
+    {
+        public const string KeepMissesLabel = "Keep misses + new";
+        public const string NoNewHint = "No new songs left in this playlist · paste another link";
+
+        public IEnumerable<SetEndOption> Options =>
+            new[] { Primary, Secondary, Tertiary }.OfType<SetEndOption>();
+    }
 
     public sealed record Error(string Message) : IslandScreen
     {
@@ -79,6 +89,9 @@ public abstract record IslandScreen
     }
 }
 
+/// One set-end button: what it starts and its label ("20 new songs", "Replay these 20").
+public sealed record SetEndOption(SetChoice Choice, string Label, string KeyHint);
+
 /// Keyboard hints drawn next to button labels (Windows names, not the Mac glyphs).
 public static class KeyHints
 {
@@ -87,6 +100,7 @@ public static class KeyHints
     public const string CtrlR = "Ctrl+R";
     public const string CtrlShiftR = "Ctrl+Shift+R";
     public const string CtrlShiftS = "Ctrl+Shift+S";
+    public const string CtrlShiftN = "Ctrl+Shift+N";
     public const string CtrlN = "Ctrl+N";
     public const string Hotkey = "Ctrl+Alt+N";
 }
@@ -142,17 +156,9 @@ public static class IslandScreens
                     answer?.Title ?? "–", answer?.Artists ?? "", PreviewHint(playerPlaysFullTrack));
             }
             case GamePhase.SetComplete sc:
-            {
-                var total = Math.Max(state.CurrentSet.Count, sc.CorrectCount);
-                return new IslandScreen.SetEnd(true, sc.CorrectCount, total, "Perfect set!",
-                    $"The next {total} songs are unlocked.", "Next set");
-            }
+                return SetEnd(state, true, sc.CorrectCount);
             case GamePhase.SetFailed sf:
-            {
-                var total = Math.Max(state.CurrentSet.Count, sf.CorrectCount);
-                return new IslandScreen.SetEnd(false, sf.CorrectCount, total, "Set over",
-                    $"Get all {total} right to unlock the next set.", "Replay set");
-            }
+                return SetEnd(state, false, sf.CorrectCount);
             case GamePhase.Error e:
                 return new IslandScreen.Error(e.Message);
             default:
@@ -175,6 +181,26 @@ public static class IslandScreens
             "Connect Spotify: full songs play on your active Spotify device (Premium).",
         _ => "Previews work for everyone, no login. Pick Spotify Connect to play full songs.",
     };
+
+    private static IslandScreen.SetEnd SetEnd(GameState state, bool complete, int correct)
+    {
+        var total = Math.Max(state.CurrentSet.Count, correct);
+        var available = GameEngine.AvailableNewCount(state);
+        var options = IslandRules.SetEndChoices(complete ? new GamePhase.SetComplete(correct) : new GamePhase.SetFailed(correct), available)
+            .Select((choice, i) => new SetEndOption(choice, choice switch
+            {
+                SetChoice.Replay => $"Replay these {total}",
+                SetChoice.KeepMisses => IslandScreen.SetEnd.KeepMissesLabel,
+                _ => available == 1 ? "1 new song" : $"{available} new songs",
+            }, i == 0 ? KeyHints.Enter : choice == SetChoice.Replay ? KeyHints.CtrlShiftR : KeyHints.CtrlShiftN))
+            .ToArray();
+        var missed = total - correct;
+        var body = available <= 0 ? IslandScreen.SetEnd.NoNewHint
+            : complete ? "All right. Play new songs, or these again."
+            : $"{missed} missed. Keep practising them, or move on.";
+        return new IslandScreen.SetEnd(complete, correct, total, complete ? "Perfect set!" : "Set over", body,
+            options[0], options.ElementAtOrDefault(1), options.ElementAtOrDefault(2));
+    }
 
     private static IslandScreen.Guess Guess(GameState state, int tier, bool playing)
     {

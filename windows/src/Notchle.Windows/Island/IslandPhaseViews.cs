@@ -317,33 +317,42 @@ internal sealed class SetEndView : PhaseView
     public SetEndView(IslandScreen.SetEnd screen, IslandContext ctx)
     {
         _screen = screen;
-        var ring = new Ring(78, 5, IslandTheme.TrackFill);
+        // Choices along the bottom, primary (Enter) on the right. Only the primary draws its key
+        // hint (three hints do not fit the island's width); the others carry theirs as a tooltip.
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var ordered = new[] { screen.Tertiary, screen.Secondary, screen.Primary };
+        foreach (var option in ordered)
+        {
+            if (option is null) continue;
+            var primary = ReferenceEquals(option, screen.Primary);
+            var choice = option.Choice;
+            var button = new IslandButton(option.Label, option.KeyHint,
+                primary ? IslandButton.Kind.Primary : option.Choice == SetChoice.Replay ? IslandButton.Kind.Secondary : IslandButton.Kind.Quiet,
+                () => ctx.Send(new GameAction.StartSet(choice)))
+            { Margin = new Thickness(buttons.Children.Count == 0 ? 0 : 8, 0, 0, 0), ShowsHint = primary, ToolTip = option.KeyHint };
+            buttons.Children.Add(button);
+        }
+        Bottom(Ui.Bar(null, buttons, 26), 8);
+
+        var top = new DockPanel { LastChildFill = true };
+        var ring = new Ring(64, 5, IslandTheme.TrackFill);
         ring.Update(screen.Total > 0 ? (double)screen.Correct / screen.Total : 0,
             screen.Complete ? IslandTheme.GreenBrush : IslandTheme.Frozen(Colors.White, 0.8));
-        var count = Ui.Text($"{screen.Correct}/{screen.Total}", 17, IslandTheme.Primary, FontWeights.Bold);
+        var count = Ui.Text($"{screen.Correct}/{screen.Total}", 15, IslandTheme.Primary, FontWeights.Bold);
         count.HorizontalAlignment = HorizontalAlignment.Center;
         ring.Children.Add(count);
         ring.VerticalAlignment = VerticalAlignment.Center;
-        ring.Margin = new Thickness(0, 0, 18, 0);
-        SetDock(ring, Dock.Left);
-        Children.Add(ring);
+        ring.Margin = new Thickness(0, 0, 16, 0);
+        DockPanel.SetDock(ring, Dock.Left);
+        top.Children.Add(ring);
 
-        var right = new DockPanel { LastChildFill = true };
-        var headline = Ui.Text(screen.Headline, 16, screen.Complete ? IslandTheme.GreenBrush : IslandTheme.Primary, FontWeights.Bold);
-        SetDock(headline, Dock.Top);
-        right.Children.Add(headline);
+        var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        texts.Children.Add(Ui.Text(screen.Headline, 16, screen.Complete ? IslandTheme.GreenBrush : IslandTheme.Primary, FontWeights.Bold));
         var body = Wrapping(screen.Body, 12, IslandTheme.Secondary, 2);
         body.Margin = new Thickness(0, 4, 0, 0);
-        SetDock(body, Dock.Top);
-        right.Children.Add(body);
-        var button = new IslandButton(screen.ButtonLabel, KeyHints.Enter, IslandButton.Kind.Primary,
-            () => ctx.Send(screen.Complete ? new GameAction.NextSet() : new GameAction.ReplaySet()))
-        { HorizontalAlignment = HorizontalAlignment.Right };
-        SetDock(button, Dock.Bottom);
-        right.Children.Add(button);
-        right.Children.Add(new Border());
-        right.Margin = new Thickness(0, 8, 0, 0);
-        Fill(right);
+        texts.Children.Add(body);
+        top.Children.Add(texts);
+        Fill(top);
     }
 
     public override bool Accepts(IslandScreen screen) => Equals(screen, _screen);

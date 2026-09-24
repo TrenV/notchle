@@ -21,8 +21,54 @@ public class UiRulesTests
         Assert.Equal(new Send(new GameAction.Next()), Key(IslandKey.Enter, new GamePhase.Correct(0)));
         Assert.Equal(new Send(new GameAction.Next()), Key(IslandKey.Enter, new GamePhase.Revealed(null)));
         Assert.Equal(new Send(new GameAction.Next()), Key(IslandKey.Enter, new GamePhase.Error("e")));
-        Assert.Equal(new Send(new GameAction.NextSet()), Key(IslandKey.Enter, new GamePhase.SetComplete(20)));
-        Assert.Equal(new Send(new GameAction.ReplaySet()), Key(IslandKey.Enter, new GamePhase.SetFailed(19)));
+    }
+
+    private static IslandCommand? SetEndKey(IslandKey k, GamePhase p, int availableNew) =>
+        IslandRules.Command(k, p, null, availableNew: availableNew);
+
+    private static Send Start(SetChoice c) => new(new GameAction.StartSet(c));
+
+    [Fact]
+    public void SetEndEnterIsThePrimaryChoice()
+    {
+        Assert.Equal(Start(SetChoice.AllNew), SetEndKey(IslandKey.Enter, new GamePhase.SetComplete(20), 20));
+        Assert.Equal(Start(SetChoice.KeepMisses), SetEndKey(IslandKey.Enter, new GamePhase.SetFailed(19), 20));
+        Assert.Equal(Start(SetChoice.Replay), SetEndKey(IslandKey.Enter, new GamePhase.SetComplete(20), 0));
+        Assert.Equal(Start(SetChoice.Replay), SetEndKey(IslandKey.Enter, new GamePhase.SetFailed(19), 0));
+    }
+
+    [Fact]
+    public void SetEndCtrlShiftRReplaysAndCtrlShiftNDealsNew()
+    {
+        foreach (GamePhase p in new GamePhase[] { new GamePhase.SetComplete(20), new GamePhase.SetFailed(3) })
+        {
+            Assert.Equal(Start(SetChoice.Replay), SetEndKey(IslandKey.CtrlShiftR, p, 7));
+            Assert.Equal(Start(SetChoice.Replay), SetEndKey(IslandKey.CtrlShiftR, p, 0));
+            Assert.Equal(Start(SetChoice.AllNew), SetEndKey(IslandKey.CtrlShiftN, p, 7));
+            Assert.Null(SetEndKey(IslandKey.CtrlShiftN, p, 0)); // the button is hidden at 0
+        }
+        foreach (var p in UiFixtures.AllPhases.Where(p => p is not (GamePhase.SetComplete or GamePhase.SetFailed)))
+            Assert.Null(SetEndKey(IslandKey.CtrlShiftN, p, 20));
+    }
+
+    [Fact]
+    public void CtrlShiftNNeverArmsQuitAndCtrlNStillDoes()
+    {
+        Assert.Equal(IslandKey.CtrlShiftN, IslandKeys.FromVirtualKey(IslandKeys.VkN, ctrl: true, alt: false, shift: true));
+        Assert.Equal(IslandKey.CtrlN, IslandKeys.FromVirtualKey(IslandKeys.VkN, ctrl: true, alt: false, shift: false));
+        Assert.Null(IslandKeys.FromVirtualKey(IslandKeys.VkN, ctrl: true, alt: true, shift: true));
+        foreach (var p in UiFixtures.AllPhases)
+            Assert.IsNotType<Quit>(SetEndKey(IslandKey.CtrlShiftN, p, 20));
+        Assert.Equal(new Quit(), SetEndKey(IslandKey.CtrlN, new GamePhase.SetFailed(3), 20));
+    }
+
+    [Fact]
+    public void SetEndChoicesPerPhase()
+    {
+        Assert.Equal([SetChoice.AllNew, SetChoice.Replay], IslandRules.SetEndChoices(new GamePhase.SetComplete(20), 20));
+        Assert.Equal([SetChoice.KeepMisses, SetChoice.Replay, SetChoice.AllNew], IslandRules.SetEndChoices(new GamePhase.SetFailed(3), 1));
+        Assert.Equal([SetChoice.Replay], IslandRules.SetEndChoices(new GamePhase.SetFailed(3), 0));
+        Assert.Empty(IslandRules.SetEndChoices(new GamePhase.Guessing(0), 20));
     }
 
     [Fact]
@@ -57,6 +103,8 @@ public class UiRulesTests
         foreach (var p in UiFixtures.AllPhases.Where(p => !shown.Any(s => s.GetType() == p.GetType())))
         {
             Assert.False(IslandRules.ShowsRestart(p));
+            // At a set end Ctrl+Shift+R replays the set instead (SetEndCtrlShiftR... below).
+            if (p is GamePhase.SetComplete or GamePhase.SetFailed) continue;
             Assert.Null(Key(IslandKey.CtrlShiftR, p));
         }
         Assert.Null(Key(IslandKey.CtrlShiftR, new GamePhase.Wrong(1, new Verdict(false, false))));
