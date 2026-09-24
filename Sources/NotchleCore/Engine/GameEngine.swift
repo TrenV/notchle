@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Integrator decisions implemented here (2026-09-24):
 /// - Every shuffle draws from a SplitMix64 seeded with `seed`: same seed + same actions = same order.
-/// - A set is `setSize` tracks drawn from the listing's tracks not yet in `clearedTrackIDs`
-///   (duplicates in the listing collapse to one). Fewer left gives a smaller final set; none
+/// - A new set is `setSize` tracks drawn from the listing's tracks not yet in `clearedTrackIDs`
+///   and not in the set just played (duplicates in the listing collapse to one). Fewer left gives a smaller final set; none
 ///   left gives `.exhausted`.
 /// - `configure` takes effect at the next snippet (and the next set for `setSize`).
 /// - Anything not listed for the current phase is a no-op returning `[]`.
@@ -83,14 +83,14 @@ public struct GameEngine: Sendable {
         case (.next, .correct), (.next, .revealed), (.next, .error):
             return advance()
 
-        case (.nextSet, .setComplete):
-            state.setNumber += 1
-            return startNewSet()
+        case (.nextSet, .setComplete), (.nextSet, .setFailed):
+            return startSet(.allNew)
 
-        case (.replaySet, .setFailed):
-            state.currentSet = rng.shuffled(state.currentSet)
-            state.results = []
-            return startTrack(at: 0)
+        case (.replaySet, .setComplete), (.replaySet, .setFailed):
+            return startSet(.replay)
+
+        case let (.startSet(choice), .setComplete), let (.startSet(choice), .setFailed):
+            return startSet(choice)
 
         case let (.playbackFailed(message), phase) where phase.hasActiveTrack:
             state.phase = .error(message: message)
@@ -125,12 +125,51 @@ public struct GameEngine: Sendable {
         lastVerdict = nil
     }
 
-    private mutating func startNewSet() -> [GameEffect] {
-        guard let listing = state.listing else { return [] }
+    /// Tracks a new set could draw from: in the listing, not cleared, not in the current set,
+    /// deduplicated, in listing order.
+    private static func newPool(_ state: GameState) -> [Track] {
+        let inSet = Set(state.currentSet.map(\.id))
         var seen = Set<String>()
-        let pool = listing.tracks.filter { track in
-            !state.clearedTrackIDs.contains(track.id) && seen.insert(track.id).inserted
+        return (state.listing?.tracks ?? []).filter { track in
+            !state.clearedTrackIDs.contains(track.id) && !inSet.contains(track.id)
+                && seen.insert(track.id).inserted
         }
+    }
+
+    /// How many new tracks `.allNew` would deal, at most `setSize` (same as the C#
+    /// `AvailableNewCount`). The UI labels "20 new songs" / "7 new songs" with it; 0 hides it.
+    public static func availableNewCount(_ state: GameState) -> Int {
+        min(newPool(state).count, max(1, state.config.setSize))
+    }
+
+    private mutating func startSet(_ choice: SetChoice) -> [GameEffect] {
+        switch choice {
+        case .replay:
+            state.currentSet = rng.shuffled(state.currentSet)
+            state.results = []
+            return startTrack(at: 0)
+        case .allNew:
+            state.setNumber += 1
+            return startNewSet()
+        case .keepMisses:
+            // `results` is aligned with `currentSet` by index (one outcome per finished track).
+            let misses = state.currentSet.indices.filter { i in
+                !state.results.indices.contains(i) || state.results[i] == .missed
+            }.map { state.currentSet[$0] }
+            guard !misses.isEmpty else { return startSet(.allNew) }
+            state.setNumber += 1
+            let size = max(1, state.config.setSize)
+            let fill = rng.shuffled(Self.newPool(state)).prefix(max(0, size - misses.count))
+            state.currentSet = rng.shuffled(misses + fill)
+            state.results = []
+            return startTrack(at: 0)
+        }
+    }
+
+    /// A set of `setSize` new tracks (see `newPool`), or `.exhausted` when there are none.
+    private mutating func startNewSet() -> [GameEffect] {
+        guard state.listing != nil else { return [] }
+        let pool = Self.newPool(state)
         state.results = []
         state.index = 0
         guard !pool.isEmpty else {
@@ -193,13 +232,13 @@ public struct GameEngine: Sendable {
 
         state.index = state.currentSet.count
         let correct = state.correctCount
-        if correct == state.currentSet.count {
-            state.phase = .setComplete(correctCount: correct)
-            state.clearedTrackIDs.formUnion(state.currentSet.map(\.id))
-            return [.stop, .persistProgress]
+        // Every track answered correctly is cleared, whether or not the whole set was.
+        for (track, outcome) in zip(state.currentSet, state.results) where outcome != .missed {
+            state.clearedTrackIDs.insert(track.id)
         }
-        state.phase = .setFailed(correctCount: correct)
-        return [.stop]
+        state.phase = correct == state.currentSet.count ? .setComplete(correctCount: correct)
+                                                        : .setFailed(correctCount: correct)
+        return [.stop, .persistProgress]
     }
 }
 

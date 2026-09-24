@@ -111,8 +111,10 @@ import NotchleCore
         #expect(ret(.correct(tierIndex: 0)) == .send(.next))
         #expect(ret(.revealed(verdict: nil)) == .send(.next))
         #expect(ret(.error(message: "e")) == .send(.next))
-        #expect(ret(.setComplete(correctCount: 20)) == .send(.nextSet))
-        #expect(ret(.setFailed(correctCount: 19)) == .send(.replaySet))
+        #expect(NotchUIRules.command(for: .returnKey, phase: .setComplete(correctCount: 20), focused: nil,
+                                     availableNew: 5) == .send(.startSet(.allNew)))
+        #expect(NotchUIRules.command(for: .returnKey, phase: .setFailed(correctCount: 19), focused: nil,
+                                     availableNew: 5) == .send(.startSet(.keepMisses)))
     }
 
     @Test func escapeGivesUpInGuessPhasesElseCollapses() {
@@ -138,6 +140,46 @@ import NotchleCore
         }
     }
 
+    @Test func setEndChoicesPerPhaseAndNewSongCount() {
+        let failed = GamePhase.setFailed(correctCount: 14), complete = GamePhase.setComplete(correctCount: 20)
+        #expect(NotchUIRules.setEndChoices(failed, availableNew: 7) == [.keepMisses, .replay, .allNew])
+        #expect(NotchUIRules.setEndChoices(complete, availableNew: 7) == [.allNew, .replay])
+        #expect(NotchUIRules.setEndChoices(failed, availableNew: 0) == [.replay])
+        #expect(NotchUIRules.setEndChoices(complete, availableNew: 0) == [.replay])
+        for p in [GamePhase.idle, .guessing(tierIndex: 0), .correct(tierIndex: 0), .exhausted] {
+            #expect(NotchUIRules.setEndChoices(p, availableNew: 20).isEmpty, "\(p)")
+        }
+        let c = GameConfig()
+        #expect(NotchUIRules.setChoiceTitle(.allNew, availableNew: 80, total: 20, c) == "20 new songs")
+        #expect(NotchUIRules.setChoiceTitle(.allNew, availableNew: 7, total: 20, c) == "7 new songs")
+        #expect(NotchUIRules.setChoiceTitle(.allNew, availableNew: 1, total: 20, c) == "1 new song")
+        #expect(NotchUIRules.setChoiceTitle(.replay, availableNew: 7, total: 20, c) == "Replay these 20")
+        #expect(NotchUIRules.setChoiceTitle(.keepMisses, availableNew: 7, total: 20, c) == "Keep misses + new")
+    }
+
+    @Test func setEndShortcuts() {
+        func cmd(_ key: UIKeyInput, _ p: GamePhase, _ n: Int) -> UICommand? {
+            NotchUIRules.command(for: key, phase: p, focused: nil, availableNew: n)
+        }
+        let failed = GamePhase.setFailed(correctCount: 14), complete = GamePhase.setComplete(correctCount: 20)
+        #expect(cmd(.returnKey, failed, 7) == .send(.startSet(.keepMisses)))
+        #expect(cmd(.returnKey, complete, 7) == .send(.startSet(.allNew)))
+        #expect(cmd(.returnKey, failed, 0) == .send(.startSet(.replay)))
+        #expect(cmd(.returnKey, complete, 0) == .send(.startSet(.replay)))
+        for p in [failed, complete] {
+            #expect(cmd(.commandShiftR, p, 7) == .send(.startSet(.replay)), "\(p)")
+            #expect(cmd(.commandShiftR, p, 0) == .send(.startSet(.replay)), "\(p)")
+            #expect(cmd(.commandShiftN, p, 7) == .send(.startSet(.allNew)), "\(p)")
+            #expect(cmd(.commandShiftN, p, 0) == nil, "\(p)")          // hidden, so no shortcut
+        }
+        // ⌘⇧N means nothing outside the end of a set; ⌘⇧R keeps meaning restart there.
+        #expect(cmd(.commandShiftN, .guessing(tierIndex: 0), 7) == nil)
+        #expect(cmd(.commandShiftR, .guessing(tierIndex: 0), 7) == .send(.restart))
+        #expect(NotchUIRules.command(for: .commandShiftN, phase: failed, focused: nil, settingsOpen: true,
+                                     availableNew: 7) == nil)
+        #expect(NotchUIRules.collapsedKeyBehavior(.commandShiftN, phase: failed) == .perform)
+    }
+
     @Test func commandShiftRRestartsWhereTheButtonShows() {
         func r(_ p: GamePhase) -> UICommand? { NotchUIRules.command(for: .commandShiftR, phase: p, focused: .title) }
         #expect(r(.playingSnippet(tierIndex: 0)) == .send(.restart))
@@ -145,8 +187,8 @@ import NotchleCore
         #expect(r(.correct(tierIndex: 1)) == .send(.restart))
         #expect(r(.revealed(verdict: nil)) == .send(.restart))
         #expect(r(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))) == .send(.restart))
-        for p in [GamePhase.idle, .loading,
-                  .setComplete(correctCount: 20), .setFailed(correctCount: 3), .exhausted, .error(message: "e")] {
+        // At the end of a set ⌘⇧R is Replay (see setEndShortcuts).
+        for p in [GamePhase.idle, .loading, .exhausted, .error(message: "e")] {
             #expect(r(p) == nil, "\(p)")
         }
         // Settings cover the phase: only Esc does anything.
@@ -154,7 +196,7 @@ import NotchleCore
                                      settingsOpen: true) == nil)
         // ⌘R stays Retry, and only Retry.
         #expect(NotchUIRules.command(for: .commandR, phase: .guessing(tierIndex: 0), focused: nil) == nil)
-        for p in Self.allPhases {
+        for p in Self.allPhases where NotchUIRules.setEndChoices(p, availableNew: 0).isEmpty {
             #expect(NotchUIRules.canRestart(p) == (r(p) != nil), "\(p)")
         }
     }
@@ -257,7 +299,7 @@ import NotchleCore
         #expect(C.keyInput(keyCode: 1, characters: "s", modifiers: .command) == nil)             // ⌘S: not ours
         #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: .shift) == nil)               // typing "S"
         #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: .command) == .commandN)
-        #expect(C.keyInput(keyCode: 45, characters: "N", modifiers: [.command, .shift]) == nil)
+        #expect(C.keyInput(keyCode: 45, characters: "N", modifiers: [.command, .shift]) == .commandShiftN)
         #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: []) == nil)                  // typing "n"
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: .shift) == nil)
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: [.capsLock, .numericPad]) == .returnKey)

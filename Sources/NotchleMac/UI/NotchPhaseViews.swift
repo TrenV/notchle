@@ -268,40 +268,68 @@ struct SetEndView: View {
     let total: Int
     let complete: Bool
 
+    private var config: GameConfig { ui.model.state.config }
+    private var availableNew: Int { GameEngine.availableNewCount(ui.model.state) }
+    private var choices: [SetChoice] {
+        NotchUIRules.setEndChoices(complete ? .setComplete(correctCount: correct) : .setFailed(correctCount: correct),
+                                   availableNew: availableNew)
+    }
+
+    private var subtitle: String {
+        if availableNew == 0 { return "No new songs left in this playlist · paste another link" }
+        return complete ? "All \(total) cleared. On to new songs?"
+                        : "\(total - correct) to practise. Keep them, replay all, or start fresh."
+    }
+
+    private func hint(_ choice: SetChoice, primary: Bool) -> String? {
+        if primary { return "⏎" }
+        switch choice {
+        case .replay: return "⌘⇧R"
+        case .allNew: return "⌘⇧N"
+        case .keepMisses: return nil
+        }
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
-            ZStack {
-                Circle().stroke(Color.white.opacity(0.1), lineWidth: 5)
-                Circle()
-                    .trim(from: 0, to: total > 0 ? CGFloat(correct) / CGFloat(total) : 0)
-                    .stroke(complete ? NotchPalette.green : Color.white.opacity(0.8),
-                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text("\(correct)/\(total)")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(NotchPalette.primaryText)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 16) {
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.1), lineWidth: 5)
+                    Circle()
+                        .trim(from: 0, to: total > 0 ? CGFloat(correct) / CGFloat(total) : 0)
+                        .stroke(complete ? NotchPalette.green : Color.white.opacity(0.8),
+                                style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(correct)/\(total)")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(NotchPalette.primaryText)
+                }
+                .frame(width: 62, height: 62)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(complete ? "Perfect set!" : "Set over")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(complete ? NotchPalette.green : NotchPalette.primaryText)
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(NotchPalette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(width: 78, height: 78)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(complete ? "Perfect set!" : "Set over")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(complete ? NotchPalette.green : NotchPalette.primaryText)
-                Text(complete ? "The next \(total) songs are unlocked."
-                              : "Get all \(total) right to unlock the next set.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(NotchPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 6)
-                HStack {
-                    Spacer()
-                    if complete {
-                        Button { ui.model.send(.nextSet) } label: { KeyHintLabel(title: "Next set", hint: "⏎") }
-                            .buttonStyle(NotchButtonStyle(kind: .primary))
-                    } else {
-                        Button { ui.model.send(.replaySet) } label: { KeyHintLabel(title: "Replay set", hint: "⏎") }
-                            .buttonStyle(NotchButtonStyle(kind: .primary))
+            Spacer(minLength: 8)
+            // The full width, so three choices fit untruncated. Right to left in importance; the
+            // quiet third one drops its ⌘⇧N hint for room (the shortcut still works).
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                ForEach(Array(choices.enumerated().reversed()), id: \.element) { rank, choice in
+                    Button { ui.model.send(.startSet(choice)) } label: {
+                        KeyHintLabel(title: NotchUIRules.setChoiceTitle(choice, availableNew: availableNew,
+                                                                        total: total, config),
+                                     hint: rank < 2 ? hint(choice, primary: rank == 0) : nil)
+                            .fixedSize()
                     }
+                    .buttonStyle(NotchButtonStyle(kind: rank == 0 ? .primary : rank == 1 ? .secondary : .quiet))
                 }
             }
         }

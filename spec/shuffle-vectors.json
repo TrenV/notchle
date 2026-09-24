@@ -9,5 +9,8 @@
   ],
   "engine": [
     { "seed": "42", "tracks": 45, "setSize": 20, "firstSet": ["t0", "t40", "t6", "t21", "t7", "t4", "t9", "t24", "t13", "t26", "t32", "t38", "t35", "t43", "t29", "t18", "t37", "t31", "t3", "t5"], "replaySet": ["t24", "t5", "t37", "t6", "t32", "t43", "t18", "t40", "t35", "t26", "t13", "t3", "t31", "t38", "t4", "t29", "t0", "t9", "t7", "t21"], "secondSet": ["t19", "t27", "t20", "t44", "t39", "t17", "t14", "t12", "t23", "t33", "t2", "t15", "t11", "t41", "t34", "t8", "t42", "t28", "t22", "t36"], "note": "tracks t0..t44 titled \"Song <i>\" by \"Artist\"; firstSet after loaded, replaySet after giving up every track then replaySet, secondSet after answering every replayed track right then nextSet" }
+  ],
+  "setChoices": [
+    { "seed": "42", "tracks": 30, "setSize": 20, "misses": [0, 5, 13], "firstSet": ["t6", "t18", "t16", "t1", "t26", "t9", "t8", "t17", "t4", "t2", "t15", "t22", "t11", "t28", "t25", "t24", "t10", "t27", "t19", "t7"], "keepMisses": ["t12", "t5", "t21", "t14", "t29", "t28", "t6", "t20", "t9", "t3", "t13", "t23", "t0"], "allNew": ["t14", "t23", "t5", "t12", "t0", "t13", "t29", "t20", "t21", "t3"], "note": "tracks t0..t29 titled \"Song <i>\" by \"Artist\"; after loaded, give up on firstSet[0], [5] and [13] and answer the rest right (setFailed 17/20); keepMisses and allNew are each the set startSet deals from that failed state (only 10 new tracks remain, so keepMisses is 3 + 10 and allNew is 10)" }
   ]
 }

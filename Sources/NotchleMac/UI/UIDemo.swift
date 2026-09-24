@@ -234,9 +234,10 @@ final class DemoGame {
             } else {
                 playSnippet(tier: 0)
             }
-        case (.nextSet, .setComplete):
+        case (.nextSet, .setComplete), (.startSet(.allNew), .setComplete), (.startSet(.allNew), .setFailed),
+             (.startSet(.keepMisses), .setComplete), (.startSet(.keepMisses), .setFailed):
             set(.exhausted)
-        case (.replaySet, .setFailed):
+        case (.replaySet, .setFailed), (.startSet(.replay), .setComplete), (.startSet(.replay), .setFailed):
             s.index = 0
             s.results = []
             s.currentSet.shuffle()

@@ -85,9 +85,23 @@ struct ShuffleSpec: Decodable, Sendable {
         let secondSet: [String]
     }
 
+    /// End-of-set choices from one failed set: `misses` are indices into `firstSet` (play order)
+    /// given up on, every other track answered right. `keepMisses` and `allNew` are each the set
+    /// dealt by that choice from this same failed state.
+    struct SetChoices: Decodable, Sendable {
+        let seed: String
+        let tracks: Int
+        let setSize: Int
+        let misses: [Int]
+        let firstSet: [String]
+        let keepMisses: [String]
+        let allNew: [String]
+    }
+
     let splitmix64: [Generator]
     let shuffle: [Shuffle]
     let engine: [Engine]
+    let setChoices: [SetChoices]
 }
 
 @Suite struct SpecJudgeCasesTests {
@@ -186,6 +200,37 @@ struct ShuffleSpec: Decodable, Sendable {
             #expect(e.state.phase == .setComplete(correctCount: vector.replaySet.count))
             _ = e.send(.nextSet)
             #expect(e.state.currentSet.map(\.id) == vector.secondSet)
+        }
+    }
+
+    /// Same scenario as the C# side: one failed set, then keepMisses or allNew from that state.
+    @Test func engineSetChoices() throws {
+        #expect(!spec.setChoices.isEmpty)
+        for vector in spec.setChoices {
+            let ref = SourceRef(kind: .playlist, id: "37i9dQZF1DXcBWIGoYBM5M")
+            let listing = SourceListing(ref: ref, name: "Spec", tracks: (0..<vector.tracks).map { i in
+                Track(id: "t\(i)", uri: "spotify:track:t\(i)", title: "Song \(i)", artists: ["Artist"],
+                      durationMs: 1, previewURL: nil)
+            })
+            var e = GameEngine(config: GameConfig(setSize: vector.setSize), seed: try #require(UInt64(vector.seed)))
+            _ = e.send(.load(ref))
+            _ = e.send(.loaded(listing))
+            #expect(e.state.currentSet.map(\.id) == vector.firstSet)
+            for i in vector.firstSet.indices {
+                if vector.misses.contains(i) {
+                    _ = e.send(.giveUp)
+                } else {
+                    _ = e.send(.submit(Guess(title: try #require(e.state.currentTrack).title, artist: "Artist")))
+                }
+                _ = e.send(.next)
+            }
+            #expect(e.state.phase == .setFailed(correctCount: vector.firstSet.count - vector.misses.count))
+
+            var keep = e, fresh = e
+            _ = keep.send(.startSet(.keepMisses))
+            _ = fresh.send(.startSet(.allNew))
+            #expect(keep.state.currentSet.map(\.id) == vector.keepMisses)
+            #expect(fresh.state.currentSet.map(\.id) == vector.allNew)
         }
     }
 }

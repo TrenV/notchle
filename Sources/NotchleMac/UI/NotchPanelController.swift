@@ -224,7 +224,8 @@ public final class NotchPanelController {
                                       modifiers: flags),
               let command = NotchUIRules.command(for: key, phase: model.state.phase, focused: ui.focusedField,
                                                  settingsOpen: ui.showingSettings, config: model.state.config,
-                                                 quitArmed: ui.isQuitArmed())
+                                                 quitArmed: ui.isQuitArmed(),
+                                                 availableNew: GameEngine.availableNewCount(model.state))
         else { return false }
         ui.perform(command)
         if command == .collapse { releaseKeyboard() }
@@ -246,6 +247,7 @@ public final class NotchPanelController {
             if mods == .command, characters?.lowercased() == "n" { return .commandN }
             if mods == [.command, .shift], characters?.lowercased() == "r" { return .commandShiftR }
             if mods == [.command, .shift], characters?.lowercased() == "s" { return .commandShiftS }
+            if mods == [.command, .shift], characters?.lowercased() == "n" { return .commandShiftN }
             return nil
         }
     }

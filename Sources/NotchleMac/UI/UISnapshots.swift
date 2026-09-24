@@ -30,6 +30,8 @@ public enum UISnapshots {
         var secondsInPhase: Double = 0.3
         /// "Quit playlist?" armed in the header.
         var quitArmed = false
+        /// Extra unplayed tracks in the listing beyond the set (drives the "N new songs" choices).
+        var newSongs = 0
     }
 
     static var scenarios: [Scenario] {
@@ -52,8 +54,10 @@ public enum UISnapshots {
             Scenario(name: "12-correct-reduce-motion", phase: .correct(tierIndex: 2), confetti: true, reduceMotion: true),
             Scenario(name: "13-revealed-gave-up", phase: .revealed(verdict: nil)),
             Scenario(name: "14-revealed-out-of-tries", phase: .revealed(verdict: Verdict(titleCorrect: false, artistCorrect: true))),
-            Scenario(name: "15-set-complete", phase: .setComplete(correctCount: 20)),
-            Scenario(name: "16-set-failed", phase: .setFailed(correctCount: 14)),
+            Scenario(name: "15-set-complete", phase: .setComplete(correctCount: 20), newSongs: 40),
+            Scenario(name: "16-set-failed", phase: .setFailed(correctCount: 14), newSongs: 7),
+            Scenario(name: "16b-set-failed-no-new", phase: .setFailed(correctCount: 14)),
+            Scenario(name: "16c-set-complete-no-new", phase: .setComplete(correctCount: 20)),
             Scenario(name: "17-exhausted", phase: .exhausted),
             Scenario(name: "18-error", phase: .error(message: "Spotify is not running. Open Spotify, then press Skip.")),
             Scenario(name: "19-settings", phase: .guessing(tierIndex: 0), settings: true),
@@ -123,7 +127,15 @@ public enum UISnapshots {
     }
 
     static func render(_ sc: Scenario) -> Data? {
-        let model = NotchViewModel(state: sc.state ?? sampleState(sc.phase, index: sc.trackIndex))
+        var state = sc.state ?? sampleState(sc.phase, index: sc.trackIndex)
+        if sc.newSongs > 0, let listing = state.listing {
+            let extra = (0..<sc.newSongs).map { i in
+                Track(id: "new\(i)", uri: "spotify:track:new\(i)", title: "New \(i)", artists: ["x"],
+                      durationMs: 200_000, previewURL: nil)
+            }
+            state.listing = SourceListing(ref: listing.ref, name: listing.name, tracks: listing.tracks + extra)
+        }
+        let model = NotchViewModel(state: state)
         model.playerName = "Spotify app"
         model.playerPlaysFullTrack = sc.fullTrack
         let ui = NotchUIState(model: model)

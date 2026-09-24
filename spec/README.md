@@ -29,6 +29,8 @@ The `title` and `artist` cases were extracted from the tables in
 - `splitmix64`: the first outputs of `SplitMix64(seed)`.
 - `shuffle`: the order `SplitMix64(seed).shuffled(0..<count)` gives.
 - `engine`: the sets a `GameEngine` seeded with `seed` deals for a fixed scenario (see `note`).
+- `setChoices`: after one failed set (`misses` are indices into `firstSet`), the set that
+  `startSet(.keepMisses)` and `startSet(.allNew)` each deal from that same state.
 
 64-bit values are decimal strings: JSON numbers lose precision above 2^53.
 
