@@ -147,7 +147,11 @@ extension AppleMusicPlayer.Timing {
         task.cancel()
         try await player.continuePlaying()   // runs before the snippet's task winds down
         _ = try? await task.value
-        #expect(music.calls.last == "resume", "calls: \(music.calls)")
+        // The bug this guards: the cancelled snippet pausing after the resume. A read-only status
+        // poll already in flight may still land after it (seen on the CI Mac runner).
+        let afterResume = Array(music.calls.drop { $0 != "resume" })
+        #expect(afterResume.first == "resume", "calls: \(music.calls)")
+        #expect(!afterResume.contains("pause"), "calls: \(music.calls)")
     }
 
     @Test func restartPlaysFromZeroAndKeepsPlaying() async throws {
