@@ -12,17 +12,21 @@ public sealed class IslandSession
     {
         _clock = clock ?? TimeProvider.System;
         Behavior = new IslandBehavior(_clock);
+        Quit = new QuitConfirmation(_clock);
         Behavior.Changed += () =>
         {
             if (!Behavior.IsExpanded)
             {
                 ShowingSettings = false;
                 FocusedField = null;
+                Quit.Disarm(); // a confirmation nobody can see can't be confirmed
             }
         };
     }
 
     public IslandBehavior Behavior { get; }
+    /// The two-step quit-playlist confirmation.
+    public QuitConfirmation Quit { get; }
     public GameState State { get; private set; } = new() { Config = GameConfig.Default };
 
     public Action<GameAction> Send { get; set; } = _ => { };
@@ -62,6 +66,15 @@ public sealed class IslandSession
         Behavior.IsExpanded ? IslandMode.Expanded
         : State.Phase is GamePhase.Idle ? IslandMode.Lip
         : IslandMode.Compact;
+
+    /// The "Quit playlist?" capsule is showing.
+    public bool QuitArmed => IslandRules.ShowsQuit(State.Phase) && Quit.IsArmed;
+
+    /// Label of the quit button: null where it is hidden, the question while armed.
+    public string? QuitLabel =>
+        !IslandRules.ShowsQuit(State.Phase) ? null
+        : QuitArmed ? IslandHeader.QuitConfirmLabel
+        : IslandHeader.QuitLabel;
 
     public IslandIndicator Indicator() => IslandIndicator.For(State, Now, SnippetStart, CelebrationStart, SetEndedAt);
 
@@ -113,7 +126,7 @@ public sealed class IslandSession
     /// Handles a key the island owns. Returns false when the key should go to the text box.
     public bool HandleKey(IslandKey key)
     {
-        var command = IslandRules.Command(key, State.Phase, FocusedField, ShowingSettings, State.Config);
+        var command = IslandRules.Command(key, State.Phase, FocusedField, ShowingSettings, State.Config, QuitArmed);
         if (command is null) return false;
         Perform(command);
         return true;
@@ -134,7 +147,22 @@ public sealed class IslandSession
             case IslandCommand.CloseSettings: ShowingSettings = false; break;
             case IslandCommand.Focus f: RequestFocus(f.Field); break;
             case IslandCommand.Restart: Restart(); break;
+            case IslandCommand.Quit: PressQuit(); break;
+            case IslandCommand.DisarmQuit: Quit.Disarm(); break;
         }
+    }
+
+    /// The quit button / Ctrl+N. First press arms "Quit playlist?"; a second one within
+    /// QuitConfirmation.Window sends Reset. The link field comes back empty, and the phase change
+    /// to Idle focuses it (FieldTransitionFor → FocusUrl).
+    public void PressQuit()
+    {
+        if (!IslandRules.ShowsQuit(State.Phase)) { Quit.Disarm(); return; }
+        if (!Quit.Press()) return;
+        UrlText = "";
+        UrlMessage = null;
+        ShowingSettings = false;
+        Send(new GameAction.Reset());
     }
 
     /// The ↺ button / Ctrl+Shift+R. In a guess phase the snippet replays at the same tier: the

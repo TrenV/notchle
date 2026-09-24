@@ -12,7 +12,13 @@ public sealed record AttemptPill(string Label, AttemptState State);
 /// ✓/✗ chip for one half of a verdict, with what the player typed.
 public sealed record VerdictChip(string Label, bool Correct, string Guess, string? Hint);
 
-public sealed record IslandHeader(string Title, string? Progress);
+public sealed record IslandHeader(string Title, string? Progress)
+{
+    /// Tooltip / accessible name of the quit-playlist button.
+    public const string QuitLabel = "Quit playlist";
+    /// The red capsule after the first press.
+    public const string QuitConfirmLabel = "Quit playlist?";
+}
 
 public abstract record IslandScreen
 {
@@ -81,6 +87,7 @@ public static class KeyHints
     public const string CtrlR = "Ctrl+R";
     public const string CtrlShiftR = "Ctrl+Shift+R";
     public const string CtrlShiftS = "Ctrl+Shift+S";
+    public const string CtrlN = "Ctrl+N";
     public const string Hotkey = "Ctrl+Alt+N";
 }
 

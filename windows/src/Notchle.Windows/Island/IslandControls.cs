@@ -203,6 +203,81 @@ internal sealed class IslandIconButton : Border
     }
 }
 
+/// Quit-playlist button in the island header: an eject glyph, and after the first press a red
+/// "Quit playlist?" capsule (the arming / timeout rules are QuitConfirmation in Notchle.Core).
+internal sealed class QuitButton : Border
+{
+    private readonly FrameworkElement _icon = Icons.Eject(IslandTheme.Secondary, 11);
+    private readonly TextBlock _confirm = Ui.Text(IslandHeader.QuitConfirmLabel, 11, IslandTheme.Black, FontWeights.SemiBold);
+    private bool _pressed;
+    private bool _armed;
+
+    public QuitButton(Action onClick)
+    {
+        Click = onClick;
+        Height = 22;
+        MinWidth = 22;
+        CornerRadius = new CornerRadius(11);
+        Cursor = Cursors.Hand;
+        Focusable = false;
+        VerticalAlignment = VerticalAlignment.Center;
+        _icon.HorizontalAlignment = HorizontalAlignment.Center;
+        _confirm.HorizontalAlignment = HorizontalAlignment.Center;
+        Child = new Grid { Children = { _icon, _confirm } };
+        AutomationProperties.SetAcceleratorKey(this, KeyHints.CtrlN);
+        MouseEnter += (_, _) => Restyle();
+        MouseLeave += (_, _) => { _pressed = false; Restyle(); };
+        Update(null, armed: false);
+    }
+
+    public Action Click { get; set; }
+    public bool Armed => _armed;
+    public string? Label { get; private set; }
+
+    /// <paramref name="label"/> null hides the button.
+    public void Update(string? label, bool armed)
+    {
+        Label = label;
+        Visibility = label is null ? Visibility.Collapsed : Visibility.Visible;
+        if (label is null) return;
+        _armed = armed;
+        _icon.Visibility = armed ? Visibility.Collapsed : Visibility.Visible;
+        _confirm.Visibility = armed ? Visibility.Visible : Visibility.Collapsed;
+        Padding = armed ? new Thickness(10, 0, 10, 0) : new Thickness(0);
+        AutomationProperties.SetName(this, label);
+        ToolTip = armed ? null : label;
+        Restyle();
+    }
+
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        _pressed = true;
+        CaptureMouse();
+        Restyle();
+        e.Handled = true;
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        var fire = _pressed && IsMouseOver;
+        _pressed = false;
+        ReleaseMouseCapture();
+        Restyle();
+        if (fire) { e.Handled = true; Click(); }
+    }
+
+    private void Restyle()
+    {
+        Background = _armed ? IslandTheme.RedBrush
+            : _pressed ? IslandTheme.SecondaryFill
+            : IsMouseOver ? IslandTheme.FaintFill
+            : IslandTheme.Transparent;
+        Opacity = _armed && _pressed ? 0.8 : 1;
+    }
+}
+
 /// Rounded text box with its own placeholder and an accent focus ring.
 internal sealed class IslandTextField : Grid
 {
@@ -373,6 +448,10 @@ internal static class Icons
             // From the top (8,2.5) clockwise round to the upper left (angle -150°): 300° of arc.
             Stroke(Geometry.Parse("M8,2.5 A5.5,5.5 0 1 1 3.24,5.25"), b, 1.8),
             Fill(Geometry.Parse("M4.9,2.5 L8.6,0 L8.6,5 Z"), b));
+
+    /// ⏏: quit the playlist.
+    public static FrameworkElement Eject(Brush b, double size = 11) =>
+        Box(size, Fill(Geometry.Parse("M8,1.5 L14.5,9 L1.5,9 Z"), b), Fill(new RectangleGeometry(new Rect(1.5, 11.3, 13, 2.6), 1, 1), b));
 
     public static FrameworkElement Close(Brush b, double size = 11) =>
         Box(size, Stroke(Geometry.Parse("M3,3 L13,13 M13,3 L3,13"), b, 2));

@@ -33,6 +33,7 @@ internal sealed class IslandView : Grid
     private readonly TextBlock _headerTitle = Ui.Text("", 11, IslandTheme.Secondary, FontWeights.SemiBold);
     private readonly TextBlock _headerProgress = Ui.Text("", 11, IslandTheme.Secondary, FontWeights.SemiBold);
     private readonly Border _gear;
+    private readonly QuitButton _quit;
     private readonly FrameworkElement _gearIcon = Icons.Gear(IslandTheme.Secondary, 13);
     private readonly FrameworkElement _closeIcon = Icons.Close(IslandTheme.Secondary, 10);
     private readonly Border _body;
@@ -91,7 +92,13 @@ internal sealed class IslandView : Grid
             Changed?.Invoke();
         };
         System.Windows.Automation.AutomationProperties.SetName(_gear, "Settings");
-        var header = Ui.Bar(Ui.Row(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), Ui.Row(8, _headerProgress, _gear), HeaderHeight);
+        // Quit playlist: two presses (the second within 3 s) send Reset, back to the link field.
+        _quit = new QuitButton(() =>
+        {
+            _session.PressQuit();
+            Changed?.Invoke();
+        });
+        var header = Ui.Bar(Ui.Row(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), Ui.Row(8, _quit, _headerProgress, _gear), HeaderHeight);
         header.Margin = new Thickness(ContentPadding - 2, 0, ContentPadding - 6, 0);
         _expanded.Children.Add(header);
         _body = new Border { Margin = new Thickness(ContentPadding, 4, ContentPadding, 16) };
@@ -163,6 +170,7 @@ internal sealed class IslandView : Grid
         _headerProgress.Visibility = header.Progress is null ? Visibility.Collapsed : Visibility.Visible;
         _gearIcon.Visibility = _session.ShowingSettings ? Visibility.Collapsed : Visibility.Visible;
         _closeIcon.Visibility = _session.ShowingSettings ? Visibility.Visible : Visibility.Collapsed;
+        _quit.Update(_session.QuitLabel, _session.QuitArmed);
 
         var screen = _session.Screen(_vm.Settings, _vm.PlayerName, _vm.PlayerPlaysFullTrack);
         if (_phaseView is null || !_phaseView.Accepts(screen))

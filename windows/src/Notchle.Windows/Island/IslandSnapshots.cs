@@ -32,6 +32,8 @@ public static class IslandSnapshots
         public bool TopTaskbar { get; init; }
         /// Draw the ↺ button in its hover state (a tooltip popup can't be captured offscreen).
         public bool RestartHover { get; init; }
+        /// First press of the quit button: the red "Quit playlist?" capsule.
+        public bool QuitArmed { get; init; }
         /// Track 5 ("Northbound") has two artists.
         public int TrackIndex { get; init; } = 6;
         /// Tests render their own state.
@@ -76,6 +78,8 @@ public static class IslandSnapshots
         new("32-revealed-restart-hover", new GamePhase.Revealed(null)) { RestartHover = true, FullTrack = false },
         new("33-guessing-t0-skip", new GamePhase.Guessing(0)) { Title = "Paper" },
         new("34-guessing-t2-no-skip", new GamePhase.Guessing(2)) { Title = "Paper Lanterns", Artist = "The Kites" },
+        new("35-quit-armed", new GamePhase.Guessing(0)) { Title = "Paper", QuitArmed = true },
+        new("36-correct-quit-armed", new GamePhase.Correct(0)) { QuitArmed = true },
     ];
 
     /// Writes one PNG per scenario into <paramref name="directory"/>. Runs on an STA thread of
@@ -146,6 +150,7 @@ public static class IslandSnapshots
             sc.SetEndAgo is { } e ? now.AddSeconds(-e) : null);
         if (sc.Expanded) session.Behavior.PointerMoved(true);
         session.ShowingSettings = sc.Settings;
+        if (sc.QuitArmed) session.PressQuit();
 
         // Fixed accent (Windows' default blue) so the PNGs do not depend on the CI machine.
         var view = new IslandView(session, vm, SnapshotAccent)

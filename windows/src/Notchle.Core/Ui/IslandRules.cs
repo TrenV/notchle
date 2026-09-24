@@ -4,14 +4,14 @@ namespace Notchle.Core.Ui;
 
 // Pure presentation rules of the Windows "island", ported from
 // Sources/NotchleMac/UI/NotchUIRules.swift. Same phases, same copy, same shortcuts
-// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Esc); the Windows-only rules (no auto-expand, hover
+// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Ctrl+N / Esc); the Windows-only rules (no auto-expand, hover
 // collapse, click-to-type) live in IslandBehavior.
 
 /// Text fields of the island.
 public enum IslandField { Url, Title, Artist }
 
 /// Keys the island handles itself; everything else goes to the focused text box.
-public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS }
+public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS, CtrlN }
 
 /// What a key means in the current phase.
 public abstract record IslandCommand
@@ -27,6 +27,10 @@ public abstract record IslandCommand
     public sealed record Focus(IslandField Field) : IslandCommand;
     /// The ↺ button: replay the snippet (guess phases) or restart the song (Correct / Revealed).
     public sealed record Restart : IslandCommand;
+    /// The quit button / Ctrl+N: arm the "Quit playlist?" confirmation, or confirm it.
+    public sealed record Quit : IslandCommand;
+    /// Esc while the quit confirmation is armed.
+    public sealed record DisarmQuit : IslandCommand;
 }
 
 public enum FieldTransitionKind
@@ -79,6 +83,10 @@ public static class IslandRules
     /// "Skip · 10s": the next tier's length; null where Skip isn't offered.
     public static string? SkipLabel(GamePhase phase, GameConfig config) =>
         CanSkip(phase, config) ? $"Skip · {SecondsLabel(Seconds(GuessTier(phase)!.Value + 1, config))}" : null;
+
+    /// Phases with the quit-playlist button: whenever a listing is loaded (or loading). Not in
+    /// Idle / Exhausted, which already show the link field.
+    public static bool ShowsQuit(GamePhase phase) => phase is not (GamePhase.Idle or GamePhase.Exhausted);
 
     /// Tooltip / accessible name of the ↺ button, null where it is hidden.
     public static string? RestartLabel(GamePhase phase) => phase switch
@@ -173,10 +181,13 @@ public static class IslandRules
 
     /// Keyboard mapping. <paramref name="settingsOpen"/>: the settings view covers the phase.
     /// <paramref name="config"/> decides whether a longer tier is left to skip to (default tiers
-    /// when null).
+    /// when null). <paramref name="quitArmed"/>: the "Quit playlist?" capsule is showing; Esc
+    /// then only disarms it.
     public static IslandCommand? Command(IslandKey key, GamePhase phase, IslandField? focused, bool settingsOpen = false,
-        GameConfig? config = null)
+        GameConfig? config = null, bool quitArmed = false)
     {
+        if (quitArmed && key == IslandKey.Escape) return new IslandCommand.DisarmQuit();
+        if (key == IslandKey.CtrlN) return ShowsQuit(phase) ? new IslandCommand.Quit() : null;
         if (settingsOpen) return key == IslandKey.Escape ? new IslandCommand.CloseSettings() : null;
         switch (key)
         {
@@ -220,7 +231,7 @@ public static class IslandRules
 /// layer passes KeyInterop.VirtualKeyFromKey(e.Key).
 public static class IslandKeys
 {
-    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkR = 0x52, VkS = 0x53;
+    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkN = 0x4E, VkR = 0x52, VkS = 0x53;
 
     public static IslandKey? FromVirtualKey(int vk, bool ctrl, bool alt, bool shift)
     {
@@ -234,6 +245,8 @@ public static class IslandKeys
             VkR when ctrl && !alt && !shift => IslandKey.CtrlR,
             VkR when ctrl && !alt && shift => IslandKey.CtrlShiftR,
             VkS when ctrl && !alt && shift => IslandKey.CtrlShiftS,
+            // Ctrl+Alt+N (the global hotkey) never gets here as Ctrl+N.
+            VkN when ctrl && !alt && !shift => IslandKey.CtrlN,
             _ => null,
         };
     }
