@@ -19,10 +19,10 @@ struct PhaseContent: View {
                                 subheading: "Every song in \(state.listing?.name ?? "this listing") has been played. Try another link.")
             case .loading:
                 LoadingView(name: state.listing?.name)
-            case .playingSnippet(let tier):
-                GuessView(ui: ui, focus: focus, tier: tier, playing: true)
-            case .guessing(let tier):
-                GuessView(ui: ui, focus: focus, tier: tier, playing: false)
+            // One branch for both, so SwiftUI keeps the same text fields when the snippet ends:
+            // two branches rebuilt them mid-typing and the guess was lost.
+            case .playingSnippet(let tier), .guessing(let tier):
+                GuessView(ui: ui, focus: focus, tier: tier, playing: NotchUIRules.isSnippetPlaying(state.phase))
             case .wrong(let tier, let verdict):
                 WrongView(ui: ui, tier: tier, verdict: verdict)
             case .correct(let tier):

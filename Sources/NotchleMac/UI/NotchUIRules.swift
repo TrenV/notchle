@@ -286,6 +286,10 @@ public enum NotchUIRules {
         seconds(ofTier: tier + 1, config)
     }
 
+    public static func isSnippetPlaying(_ phase: GamePhase) -> Bool {
+        if case .playingSnippet = phase { return true } else { return false }
+    }
+
     /// Field behaviour for a phase change. `old` is nil at launch.
     public static func fieldTransition(from old: GamePhase?, to new: GamePhase) -> FieldTransition {
         if old == new { return .none }
