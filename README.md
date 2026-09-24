@@ -161,6 +161,7 @@ and `%APPDATA%\Notchle`.
 - **⌘⇧R** (macOS) / **Ctrl+Shift+R** (Windows), or **↺**, replays the snippet without using a try, or restarts the song from 0:00 once it's answered.
 - **⌘⇧S** (macOS) / **Ctrl+Shift+S** (Windows), or **Skip**, uses up this try without guessing and plays the next, longer snippet.
 - **⌘N** (macOS) / **Ctrl+N** (Windows), or **✕** in the header, quits the playlist so you can paste another: press it again (or click **Quit playlist?**) within 3 seconds to confirm; Esc cancels.
+- **History** (**⌘2**, or the clock in the header; **⌘1** back to Play) lists every song you played with its cover, how many tries it took and your stats; songs of the set you're playing show up once that set ends. It has its own **Clear history** (click twice); Reset progress keeps it. (macOS)
 - Typos are fine. The artist field needs **every** credited artist, in any order. It
   won't tell you how many there are.
 - The notch or island only takes the keyboard after you click it. It closes when your mouse

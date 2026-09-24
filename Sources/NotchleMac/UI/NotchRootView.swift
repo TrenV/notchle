@@ -17,7 +17,8 @@ public struct NotchRootView: View {
 
     public var body: some View {
         let expanded = ui.isExpanded
-        let size = NotchMetrics.shapeSize(geometry, expanded: expanded)
+        let tall = ui.usesTallLayout
+        let size = NotchMetrics.shapeSize(geometry, expanded: expanded, tall: tall)
         let silhouette = NotchSilhouette(hasNotch: geometry.hasNotch, expanded: expanded)
 
         ZStack(alignment: .top) {
@@ -32,8 +33,7 @@ public struct NotchRootView: View {
                     ZStack(alignment: .top) {
                         if expanded {
                             ExpandedContent(ui: ui, geometry: geometry)
-                                .frame(width: NotchMetrics.expandedSize.width,
-                                       height: NotchMetrics.expandedSize.height, alignment: .top)
+                                .frame(width: size.width, height: size.height, alignment: .top)
                                 .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
                         } else {
                             CollapsedContent(ui: ui, geometry: geometry)
@@ -55,6 +55,8 @@ public struct NotchRootView: View {
         .frame(width: NotchMetrics.panelSize.width, height: NotchMetrics.panelSize.height, alignment: .top)
         .animation(reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.42, dampingFraction: 0.8),
                    value: expanded)
+        .animation(reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.36, dampingFraction: 0.85),
+                   value: tall)
         .environment(\.colorScheme, .dark)
     }
 }
@@ -235,6 +237,8 @@ struct ExpandedContent: View {
             Group {
                 if ui.showingSettings {
                     NotchSettingsView(ui: ui)
+                } else if ui.tab == .history {
+                    NotchHistoryView(ui: ui)
                 } else {
                     PhaseContent(ui: ui, focus: $focus)
                 }
@@ -263,10 +267,8 @@ struct ExpandedContent: View {
     @ViewBuilder
     private func header(_ state: GameState) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "music.note")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(NotchPalette.green)
-            Text(state.listing?.name ?? "Notchle")
+            NotchTabSwitch(ui: ui)
+            Text(ui.tab == .history && !ui.showingSettings ? "History" : state.listing?.name ?? "Notchle")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(NotchPalette.secondaryText)
                 .lineLimit(1)

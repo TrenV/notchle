@@ -12,6 +12,13 @@ public final class NotchUIState {
     public var isExpanded = false
     public private(set) var isHovering = false
     public var showingSettings = false
+    /// Play or History. The game keeps running behind the History tab; switching back shows
+    /// it unchanged (typed guess included).
+    public private(set) var tab: NotchTab = .play
+    /// When "Clear history?" was armed; nil when it isn't (same window as Quit).
+    public internal(set) var clearHistoryArmedAt: Date?
+    /// Field that had focus when the History tab opened, restored on the way back.
+    private var focusBeforeHistory: UIField?
 
     public var urlText = ""
     public var titleText = ""
@@ -172,7 +179,7 @@ public final class NotchUIState {
     public func evaluateAutoCollapse(now: Date = Date()) -> Bool {
         guard isExpanded else { mouseLeftAt = nil; return false }
         // An armed "Quit playlist?" holds the panel open until it is answered or expires.
-        let busy = isTyping(now: now) || isQuitArmed(now: now)
+        let busy = isTyping(now: now) || isQuitArmed(now: now) || isClearHistoryArmed(now: now)
         guard NotchUIRules.shouldAutoCollapse(expanded: isExpanded, mouseLeftAt: mouseLeftAt,
                                               typing: busy, now: now) else { return false }
         collapse()
@@ -182,6 +189,10 @@ public final class NotchUIState {
     public func collapse() {
         isExpanded = false
         showingSettings = false
+        // Reopening shows the game again (hover in mid-snippet lands on the guess fields).
+        tab = .play
+        focusBeforeHistory = nil
+        clearHistoryArmedAt = nil
         quitArmedAt = nil
         mouseLeftAt = nil
         focusedField = nil
@@ -209,6 +220,60 @@ public final class NotchUIState {
         case .focus(let field): requestFocus(field)
         case .quit: quitPressed()
         case .disarmQuit: disarmQuit()
+        case .showTab(let tab): showTab(tab)
+        }
+    }
+
+    // MARK: History tab
+
+    /// The expanded shape is the taller History size.
+    public var usesTallLayout: Bool { tab == .history && !showingSettings }
+
+    /// Switches tab (⌘1/⌘2 or the header switch). Opens a collapsed panel; closes settings.
+    public func showTab(_ new: NotchTab, now: Date = Date()) {
+        showingSettings = false
+        clearHistoryArmedAt = nil
+        if !isExpanded {
+            isExpanded = true
+            if !isHovering { mouseLeftAt = now }
+        }
+        guard new != tab else { return }
+        if new == .history {
+            focusBeforeHistory = focusedField
+            tab = .history
+        } else {
+            tab = .play
+            // Back to the game: the fields reappear; put the cursor where it was.
+            let back = focusBeforeHistory ?? (NotchUIRules.showsGuessFields(phase) ? .title
+                                             : NotchUIRules.showsURLField(phase) ? .url : nil)
+            focusBeforeHistory = nil
+            if let back, back == .url ? NotchUIRules.showsURLField(phase) : NotchUIRules.showsGuessFields(phase) {
+                requestFocus(back)
+            }
+        }
+    }
+
+    /// History entries the History tab may show: the spoiler filter over the model's history.
+    public var visibleHistory: [HistoryEntry] {
+        HistorySpoilerFilter.visible(model.history, in: model.state)
+    }
+
+    public func isClearHistoryArmed(now: Date = Date()) -> Bool {
+        NotchUIRules.isQuitArmed(armedAt: clearHistoryArmedAt, now: now)
+    }
+
+    /// "Clear history" button: first press arms "Clear history?", a second press within the
+    /// window clears.
+    public func clearHistoryPressed(now: Date = Date()) {
+        if isClearHistoryArmed(now: now) {
+            clearHistoryArmedAt = nil
+            model.clearHistory()
+            return
+        }
+        clearHistoryArmedAt = now
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(NotchUIRules.quitConfirmWindow))
+            if self?.clearHistoryArmedAt == now { self?.clearHistoryArmedAt = nil }
         }
     }
 

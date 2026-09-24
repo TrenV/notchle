@@ -30,6 +30,9 @@ public final class UIDemo {
 
         model = NotchViewModel()
         model.playerName = "Spotify app (demo)"
+        model.history = DemoHistory.entries()
+        model.clearHistory = { [model] in model.history = [] }
+        ArtworkImageCache.shared.override = { DemoHistory.cover(for: $0) }
         controller = NotchPanelController(model: model)
         game = DemoGame(model: model)
         if arguments.contains("--ui-activate") { controller.keyboardStrategy = .makeKeyAndActivate }

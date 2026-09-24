@@ -15,6 +15,13 @@ public enum UIKeyInput: Hashable, Sendable {
     case commandShiftS
     /// ⌘N: quit the playlist (arms the confirmation, or confirms it).
     case commandN
+    /// ⌘1 / ⌘2: the Play / History tab.
+    case command1, command2
+}
+
+/// The expanded notch's tabs.
+public enum NotchTab: Hashable, Sendable {
+    case play, history
 }
 
 /// What a key means in the current phase.
@@ -30,6 +37,8 @@ public enum UICommand: Hashable, Sendable {
     /// Quit the playlist: arms the "Quit playlist?" confirmation, or confirms an armed one.
     case quit
     case disarmQuit
+    /// Switch the expanded notch to this tab (opening the panel if it is collapsed).
+    case showTab(NotchTab)
 }
 
 /// What the guess fields do when the phase changes.
@@ -174,6 +183,7 @@ public enum NotchUIRules {
         case .commandR?, .commandShiftR?, .commandShiftS?: return .perform
         // Arming opens the panel itself, so the confirmation is visible.
         case .commandN?: return showsQuit(phase) ? .perform : .ignore
+        case .command1?, .command2?: return .perform   // opens the panel on that tab
         case .escape?: return .ignore       // never give up on a panel you cannot see
         }
     }
@@ -240,6 +250,13 @@ public enum NotchUIRules {
         default:
             return nil
         }
+    }
+
+    /// The cover the answer screen may show: the model's cover only in `correct`/`revealed`
+    /// (the same gate as `revealedAnswer`), nil in every other phase.
+    public static func revealedArtwork(_ state: GameState, url: URL?) -> (trackID: String, url: URL)? {
+        guard let url, revealedAnswer(state) != nil, let track = state.currentTrack else { return nil }
+        return (track.id, url)
     }
 
     /// Placeholder of the artist field. A guess needs every credited artist, so with more than
@@ -319,13 +336,24 @@ public enum NotchUIRules {
 
     /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content. `config`
     /// decides whether a longer tier is left to skip to. `quitArmed`: "Quit playlist?" is showing,
-    /// so Esc cancels it (and nothing else).
+    /// so Esc cancels it (and nothing else). `historyOpen`: the History tab covers the game,
+    /// so game keys are inert there (no blind submit, and Esc goes back to Play instead of
+    /// giving up); ⌘1/⌘2 and ⌘N still work.
     public static func command(for key: UIKeyInput, phase: GamePhase, focused: UIField?,
                                settingsOpen: Bool = false, config: GameConfig = GameConfig(),
-                               quitArmed: Bool = false) -> UICommand? {
+                               quitArmed: Bool = false, historyOpen: Bool = false) -> UICommand? {
+        if key == .command1 { return .showTab(.play) }
+        if key == .command2 { return .showTab(.history) }
         if quitArmed, key == .escape { return .disarmQuit }
         if settingsOpen {
             return key == .escape ? .closeSettings : nil
+        }
+        if historyOpen {
+            switch key {
+            case .escape: return .showTab(.play)
+            case .commandN: return showsQuit(phase) ? .quit : nil
+            default: return nil
+            }
         }
         switch key {
         case .returnKey:
@@ -352,6 +380,8 @@ public enum NotchUIRules {
         case .tab, .backTab:
             guard showsGuessFields(phase) else { return nil }
             return focused == .title ? .focus(.artist) : .focus(.title)
+        case .command1, .command2:
+            return nil   // handled above
         }
     }
 }

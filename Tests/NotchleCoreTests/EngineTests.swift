@@ -18,6 +18,11 @@ private func listing(_ count: Int) -> SourceListing {
     })
 }
 
+/// `effects` without `.recordOutcome` (the history tests check that one on its own).
+private func playback(_ effects: [GameEffect]) -> [GameEffect] {
+    effects.filter { if case .recordOutcome = $0 { return false } else { return true } }
+}
+
 private func right(_ track: Track?) -> GameAction { .submit(Guess(title: track?.id ?? "", artist: "a")) }
 private let wrongGuess = GameAction.submit(Guess(title: "nope", artist: "a"))
 private let wrongVerdict = Verdict(titleCorrect: false, artistCorrect: true)
@@ -79,7 +84,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         var lastEffects: [GameEffect] = []
         for i in 0..<20 {
             let track = e.state.currentTrack
-            #expect(e.send(right(track)) == [.continuePlaying])
+            #expect(playback(e.send(right(track))) == [.continuePlaying])
             #expect(e.state.phase == .correct(tierIndex: 0))
             lastEffects = e.send(.next)
             if i < 19 {
@@ -124,7 +129,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         #expect(e.send(.retry) == [.playSnippet(track, start: 0, seconds: 15)])
         _ = e.send(.snippetFinished)
         #expect(e.state.phase == .guessing(tierIndex: 2))
-        #expect(e.send(wrongGuess) == [.continuePlaying])
+        #expect(playback(e.send(wrongGuess)) == [.continuePlaying])
         #expect(e.state.phase == .revealed(verdict: wrongVerdict))
         #expect(e.state.results == [.missed])
     }
@@ -143,7 +148,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         #expect(e.send(wrongGuess) == [.stop])
         #expect(e.state.phase == .wrong(tierIndex: 0, verdict: wrongVerdict))
         _ = e.send(.retry)
-        #expect(e.send(right(e.state.currentTrack)) == [.continuePlaying])
+        #expect(playback(e.send(right(e.state.currentTrack))) == [.continuePlaying])
     }
 
     @Test func blankGuessIsIgnoredButHalfBlankIsJudged() {
@@ -157,7 +162,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
 
     @Test func giveUpRevealsWithLastWrongVerdictOrNil() {
         var e = engine()
-        #expect(e.send(.giveUp) == [.continuePlaying])
+        #expect(playback(e.send(.giveUp)) == [.continuePlaying])
         #expect(e.state.phase == .revealed(verdict: nil))
         #expect(e.state.results == [.missed])
 
@@ -239,7 +244,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         let effects = e.send(.next)
         #expect(e.state.results == [.missed])
         #expect(e.state.index == 1)
-        #expect(effects == [.playSnippet(try #require(e.state.currentTrack), start: 0, seconds: 5)])
+        #expect(playback(effects) == [.playSnippet(try #require(e.state.currentTrack), start: 0, seconds: 5)])
     }
 
     @Test func playbackFailedAfterCorrectDoesNotDoubleCount() {
@@ -472,7 +477,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
                 let skipEffects = skipped.send(.skip)
                 #expect(skipEffects == gaveUp.send(.giveUp))
                 #expect(skipped.state == gaveUp.state)
-                #expect(skipEffects == [.continuePlaying])
+                #expect(playback(skipEffects) == [.continuePlaying])
                 #expect(skipped.state.phase == .revealed(verdict: wrongFirst ? wrongVerdict : nil))
                 #expect(skipped.state.results == [.missed])
             }
@@ -485,7 +490,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         #expect(e.send(.skip) == [.playSnippet(track, start: 0, seconds: 10)])
         _ = e.send(.snippetFinished)
         #expect(e.send(.skip) == [.playSnippet(track, start: 0, seconds: 15)])
-        #expect(e.send(right(track)) == [.continuePlaying])
+        #expect(playback(e.send(right(track))) == [.continuePlaying])
         #expect(e.state.phase == .correct(tierIndex: 2))
         #expect(e.state.results == [.correct(tierIndex: 2)])
     }

@@ -125,6 +125,13 @@ public enum GameEffect: Sendable, Hashable {
     case stop
     /// `clearedTrackIDs` changed; persist it.
     case persistProgress
+    /// The outcome of `track` was just decided: guessed right, or missed (wrong at the last
+    /// tier, give up, skip at the last tier, or `next` from an error before an outcome).
+    /// Emitted exactly once per played track, first in that step's effect list. The platform
+    /// stamps the date and the listing and appends it to the play history.
+    /// `wrongGuesses`/`skips` count this track's wrong guesses and skips (a skip at the last
+    /// tier is exactly `giveUp`, so it is not counted); both reset per track and on `replaySet`.
+    case recordOutcome(Track, TrackOutcome, wrongGuesses: Int, skips: Int)
 }
 
 /// Decides whether a guess matches a track. Implemented by `FuzzyAnswerJudge` (Wave 2, agent C).

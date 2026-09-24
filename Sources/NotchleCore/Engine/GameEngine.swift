@@ -15,6 +15,9 @@ public struct GameEngine: Sendable {
     private var rng: SplitMix64
     /// The last wrong verdict for the current track; shown on reveal. Cleared per track.
     private var lastVerdict: Verdict?
+    /// Wrong guesses and skips on the current track, for `.recordOutcome`. Cleared per track.
+    private var wrongGuesses = 0
+    private var skips = 0
 
     /// `seed` drives every shuffle so tests are deterministic; the app passes a random one.
     public init(config: GameConfig = GameConfig(), clearedTrackIDs: Set<String> = [],
@@ -63,7 +66,8 @@ public struct GameEngine: Sendable {
         // Forfeit this attempt for the next tier; no result until the track ends. The last
         // tier has nothing longer to offer, so there it is exactly `giveUp`.
         case let (.skip, .playingSnippet(tier)), let (.skip, .guessing(tier)):
-            guard tier + 1 < tiers.count else { return reveal(lastVerdict) }
+            guard tier + 1 < tiers.count else { return reveal(lastVerdict) }   // not counted as a skip
+            skips += 1
             return playSnippet(tier: tier + 1)
 
         // Replay the same tier: no attempt used, no result, the typed guess is the UI's business.
@@ -90,7 +94,7 @@ public struct GameEngine: Sendable {
         case (.replaySet, .setFailed):
             state.currentSet = rng.shuffled(state.currentSet)
             state.results = []
-            return startTrack(at: 0)
+            return startTrack(at: 0)   // resets the per-track counters
 
         case let (.playbackFailed(message), phase) where phase.hasActiveTrack:
             state.phase = .error(message: message)
@@ -122,7 +126,19 @@ public struct GameEngine: Sendable {
         state.index = 0
         state.results = []
         state.setNumber = 0
+        resetTrackCounters()
+    }
+
+    private mutating func resetTrackCounters() {
         lastVerdict = nil
+        wrongGuesses = 0
+        skips = 0
+    }
+
+    /// The `.recordOutcome` effect for the current track.
+    private func record(_ outcome: TrackOutcome) -> [GameEffect] {
+        guard let track = state.currentTrack else { return [] }
+        return [.recordOutcome(track, outcome, wrongGuesses: wrongGuesses, skips: skips)]
     }
 
     private mutating func startNewSet() -> [GameEffect] {
@@ -145,7 +161,7 @@ public struct GameEngine: Sendable {
 
     private mutating func startTrack(at index: Int) -> [GameEffect] {
         state.index = index
-        lastVerdict = nil
+        resetTrackCounters()
         return playSnippet(tier: 0)
     }
 
@@ -165,9 +181,10 @@ public struct GameEngine: Sendable {
             state.phase = .correct(tierIndex: tier)
             state.results.append(.correct(tierIndex: tier))
             state.celebrationCount += 1
-            return [.continuePlaying]
+            return record(.correct(tierIndex: tier)) + [.continuePlaying]
         }
         lastVerdict = verdict
+        wrongGuesses += 1
         if tier + 1 < tiers.count {
             state.phase = .wrong(tierIndex: tier, verdict: verdict)
             return snippetPlaying ? [.stop] : []
@@ -178,17 +195,21 @@ public struct GameEngine: Sendable {
     private mutating func reveal(_ verdict: Verdict?) -> [GameEffect] {
         state.phase = .revealed(verdict: verdict)
         state.results.append(.missed)
-        return [.continuePlaying]
+        return record(.missed) + [.continuePlaying]
     }
 
     private mutating func advance() -> [GameEffect] {
         guard !state.currentSet.isEmpty else { return [] }  // error while loading: nothing to skip
         // An error mid-track (before an outcome was recorded) counts as a miss.
-        if state.results.count <= state.index { state.results.append(.missed) }
+        var recorded: [GameEffect] = []
+        if state.results.count <= state.index {
+            state.results.append(.missed)
+            recorded = record(.missed)
+        }
 
         let nextIndex = state.index + 1
         if nextIndex < state.currentSet.count {
-            return startTrack(at: nextIndex)
+            return recorded + startTrack(at: nextIndex)
         }
 
         state.index = state.currentSet.count
@@ -196,10 +217,10 @@ public struct GameEngine: Sendable {
         if correct == state.currentSet.count {
             state.phase = .setComplete(correctCount: correct)
             state.clearedTrackIDs.formUnion(state.currentSet.map(\.id))
-            return [.stop, .persistProgress]
+            return recorded + [.stop, .persistProgress]
         }
         state.phase = .setFailed(correctCount: correct)
-        return [.stop]
+        return recorded + [.stop]
     }
 }
 
