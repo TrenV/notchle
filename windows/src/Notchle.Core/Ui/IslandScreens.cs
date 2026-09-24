@@ -33,6 +33,8 @@ public abstract record IslandScreen
         public const string TitlePlaceholder = "Title";
         public const string GiveUpLabel = "Give up";
         public const string SubmitLabel = "Submit";
+        /// Tooltip of the ↺ button: the snippet again, same tier, no attempt used.
+        public const string RestartLabel = "Replay snippet";
     }
 
     /// Wrong. Never holds the track; the chips show what the player typed.
@@ -46,6 +48,8 @@ public abstract record IslandScreen
     public sealed record Answer(bool Correct, string Headline, string Title, string Artists, string? PreviewHint) : IslandScreen
     {
         public const string NextLabel = "Next";
+        /// Tooltip of the ↺ button: the whole song from 0:00.
+        public const string RestartLabel = "Restart song";
     }
 
     public sealed record SetEnd(bool Complete, int Correct, int Total, string Headline, string Body, string ButtonLabel) : IslandScreen;
@@ -74,6 +78,7 @@ public static class KeyHints
     public const string Enter = "Enter";
     public const string Esc = "Esc";
     public const string CtrlR = "Ctrl+R";
+    public const string CtrlShiftR = "Ctrl+Shift+R";
     public const string Hotkey = "Ctrl+Alt+N";
 }
 

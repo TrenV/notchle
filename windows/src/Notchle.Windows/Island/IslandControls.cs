@@ -134,6 +134,75 @@ internal sealed class IslandButton : Border
     }
 }
 
+/// Round icon-only button (the ↺ restart): hover fill, tooltip, accessible name. Not focusable,
+/// so clicking it leaves keyboard focus (and the caret) in the text box it was in.
+internal sealed class IslandIconButton : Border
+{
+    private bool _pressed;
+    private bool _highlighted;
+
+    public IslandIconButton(FrameworkElement glyph, string label, string? shortcut, Action onClick)
+    {
+        Click = onClick;
+        Width = Height = 22;
+        CornerRadius = new CornerRadius(11);
+        Background = IslandTheme.Transparent;
+        Cursor = Cursors.Hand;
+        Focusable = false;
+        VerticalAlignment = VerticalAlignment.Center;
+        glyph.HorizontalAlignment = HorizontalAlignment.Center;
+        glyph.VerticalAlignment = VerticalAlignment.Center;
+        Child = glyph;
+        RenderTransformOrigin = new Point(0.5, 0.5);
+        Label = label;
+        if (shortcut is not null) AutomationProperties.SetAcceleratorKey(this, shortcut);
+        ToolTipService.SetInitialShowDelay(this, 400);
+        MouseEnter += (_, _) => Restyle();
+        MouseLeave += (_, _) => { _pressed = false; Restyle(); };
+    }
+
+    public Action Click { get; set; }
+
+    /// Tooltip and accessible name.
+    public string Label
+    {
+        get => AutomationProperties.GetName(this);
+        set
+        {
+            AutomationProperties.SetName(this, value);
+            ToolTip = value;
+        }
+    }
+
+    /// Draws the hover state without a pointer (snapshots).
+    public bool Highlighted { get => _highlighted; set { _highlighted = value; Restyle(); } }
+
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        _pressed = true;
+        CaptureMouse();
+        Restyle();
+        e.Handled = true;
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        var fire = _pressed && IsMouseOver;
+        _pressed = false;
+        ReleaseMouseCapture();
+        Restyle();
+        if (fire) { e.Handled = true; Click(); }
+    }
+
+    private void Restyle()
+    {
+        Background = _pressed ? IslandTheme.SecondaryFill : IsMouseOver || _highlighted ? IslandTheme.FaintFill : IslandTheme.Transparent;
+        RenderTransform = _pressed ? new ScaleTransform(0.94, 0.94) : Transform.Identity;
+    }
+}
+
 /// Rounded text box with its own placeholder and an accent focus ring.
 internal sealed class IslandTextField : Grid
 {
@@ -297,6 +366,13 @@ internal static class Icons
         gear.Freeze();
         return Box(size, Fill(gear, b));
     }
+
+    /// ↺: an open circle running anticlockwise, the arrowhead at the top pointing into the gap.
+    public static FrameworkElement Restart(Brush b, double size = 13) =>
+        Box(size,
+            // From the top (8,2.5) clockwise round to the upper left (angle -150°): 300° of arc.
+            Stroke(Geometry.Parse("M8,2.5 A5.5,5.5 0 1 1 3.24,5.25"), b, 1.8),
+            Fill(Geometry.Parse("M4.9,2.5 L8.6,0 L8.6,5 Z"), b));
 
     public static FrameworkElement Close(Brush b, double size = 11) =>
         Box(size, Stroke(Geometry.Parse("M3,3 L13,13 M13,3 L3,13"), b, 2));

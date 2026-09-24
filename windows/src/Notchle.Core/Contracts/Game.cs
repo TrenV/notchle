@@ -12,6 +12,11 @@ namespace Notchle.Core;
 // - 20/20: NextSet moves to 20 unplayed tracks from the same listing. Less: ReplaySet replays
 //   the same tracks reshuffled. No unplayed tracks left: Exhausted.
 // - Snippets start at GameConfig.SnippetStart (default 0).
+// - Restart (Tren, 2026-09-24): in PlayingSnippet / Guessing it replays the current snippet from
+//   its start at the same tier (no attempt used, nothing recorded). In Correct / Revealed it
+//   restarts the whole song from 0:00 and lets it play on. Ignored everywhere else, Wrong
+//   included: Retry is the way on from there, and a free replay would allow unlimited guesses
+//   at the same tier.
 
 public abstract record GamePhase
 {
@@ -65,6 +70,9 @@ public abstract record GameAction
     public sealed record Next : GameAction;
     public sealed record NextSet : GameAction;
     public sealed record ReplaySet : GameAction;
+    /// Replay the current snippet from its start (PlayingSnippet/Guessing: doesn't use up an
+    /// attempt), or restart the whole song from 0:00 (Correct/Revealed). Ignored elsewhere.
+    public sealed record Restart : GameAction;
     public sealed record PlaybackFailed(string Message) : GameAction;
     public sealed record Configure(GameConfig Config) : GameAction;
     public sealed record Reset : GameAction;
@@ -78,6 +86,8 @@ public abstract record GameEffect
     /// Cancel a running snippet and let the song play on from where it is.
     public sealed record ContinuePlaying : GameEffect;
     public sealed record Stop : GameEffect;
+    /// Cancel any running snippet and play Track from the very start, continuing to the end.
+    public sealed record RestartTrack(Track Track) : GameEffect;
     /// ClearedTrackIds changed; persist it.
     public sealed record PersistProgress : GameEffect;
 }

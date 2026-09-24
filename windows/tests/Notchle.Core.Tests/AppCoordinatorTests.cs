@@ -41,6 +41,12 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
         return Task.CompletedTask;
     }
 
+    public Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        Append($"restart:{track.Id}");
+        return Task.CompletedTask;
+    }
+
     public Task StopAsync()
     {
         Append("stop");
@@ -141,6 +147,46 @@ public class AppCoordinatorTests
         await h.Coordinator.DrainAsync();
 
         Assert.Equal(new[] { "snippet:t1", "paused:t1", "continue" }, player.Log);
+    }
+
+    /// A restart while a snippet plays: the snippet is cancelled and its (slow) pause lands
+    /// before the song starts over; nothing pauses after the restart.
+    [Fact]
+    public async Task RestartWaitsForCancelledSnippetToPauseAndNothingPausesAfter()
+    {
+        var player = new AppRecordingPlayer(pauseLatency: TimeSpan.FromMilliseconds(150));
+        var h = new Harness(_ => player);
+
+        h.Coordinator.RunForTesting(new GameEffect.PlaySnippet(T1, 0, 30));
+        await WaitUntil(() => player.Log.Contains("snippet:t1"));
+        h.Coordinator.RunForTesting(new GameEffect.RestartTrack(T1));
+        await h.Coordinator.DrainAsync();
+        await Task.Delay(200); // a stray pause arriving late would show up here
+
+        Assert.Equal(new[] { "snippet:t1", "paused:t1", "restart:t1" }, player.Log);
+        Assert.Empty(h.ActionsOf<GameAction.SnippetFinished>());
+        Assert.Empty(h.ActionsOf<GameAction.PlaybackFailed>());
+    }
+
+    /// End to end through the engine: Restart in Correct restarts the song on the player.
+    [Fact]
+    public async Task RestartInCorrectRestartsTheSongOnThePlayer()
+    {
+        var source = new AppGatedSource();
+        var player = new AppRecordingPlayer { CompleteSnippetAfterSeconds = 0.01 };
+        var h = new Harness(_ => player, source);
+
+        h.Coordinator.Send(new GameAction.Load(Ref1));
+        await WaitUntil(() => source.Calls.Count == 1);
+        source.Calls.Single().Result.SetResult(new SourceListing(Ref1, "one", new[] { T1 }));
+        await h.Coordinator.DrainAsync();
+        h.Coordinator.Send(new GameAction.Submit(new Guess("x", "y")));
+        Assert.IsType<GamePhase.Correct>(h.Coordinator.State.Phase);
+        h.Coordinator.Send(new GameAction.Restart());
+        await h.Coordinator.DrainAsync();
+
+        Assert.Equal(new[] { "stop", "snippet:t1", "finished:t1", "continue", "restart:t1" }, player.Log);
+        Assert.IsType<GamePhase.Correct>(h.Coordinator.State.Phase);
     }
 
     [Fact]

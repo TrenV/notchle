@@ -4,14 +4,14 @@ namespace Notchle.Core.Ui;
 
 // Pure presentation rules of the Windows "island", ported from
 // Sources/NotchleMac/UI/NotchUIRules.swift. Same phases, same copy, same shortcuts
-// (Enter / Tab / Ctrl+R / Esc); the Windows-only rules (no auto-expand, hover collapse,
-// click-to-type) live in IslandBehavior.
+// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Esc); the Windows-only rules (no auto-expand, hover
+// collapse, click-to-type) live in IslandBehavior.
 
 /// Text fields of the island.
 public enum IslandField { Url, Title, Artist }
 
 /// Keys the island handles itself; everything else goes to the focused text box.
-public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR }
+public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR }
 
 /// What a key means in the current phase.
 public abstract record IslandCommand
@@ -25,6 +25,8 @@ public abstract record IslandCommand
     public sealed record Collapse : IslandCommand;
     public sealed record CloseSettings : IslandCommand;
     public sealed record Focus(IslandField Field) : IslandCommand;
+    /// The ↺ button: replay the snippet (guess phases) or restart the song (Correct / Revealed).
+    public sealed record Restart : IslandCommand;
 }
 
 public enum FieldTransitionKind
@@ -55,6 +57,19 @@ public static class IslandRules
     /// Phases that show the Title / Artist(s) fields.
     public static bool ShowsGuessFields(GamePhase phase) =>
         phase is GamePhase.PlayingSnippet or GamePhase.Guessing;
+
+    /// Phases with the ↺ button. Not Wrong: Retry is the way on from there (a free replay would
+    /// be unlimited guesses at the same tier), and the engine ignores Restart there anyway.
+    public static bool ShowsRestart(GamePhase phase) =>
+        phase is GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Correct or GamePhase.Revealed;
+
+    /// Tooltip / accessible name of the ↺ button, null where it is hidden.
+    public static string? RestartLabel(GamePhase phase) => phase switch
+    {
+        GamePhase.PlayingSnippet or GamePhase.Guessing => IslandScreen.Guess.RestartLabel,
+        GamePhase.Correct or GamePhase.Revealed => IslandScreen.Answer.RestartLabel,
+        _ => null,
+    };
 
     /// Phases that show the Spotify link field.
     public static bool ShowsUrlField(GamePhase phase) =>
@@ -123,6 +138,9 @@ public static class IslandRules
                 // Snippet -> guessing of the same tier: the player may be mid-typing; leave them be.
                 if (old is GamePhase.PlayingSnippet op && op.TierIndex == tier && @new is GamePhase.Guessing)
                     return FieldTransition.None;
+                // A replay (Restart from Guessing): same track, same tier. Keep text and focus.
+                if (old is GamePhase.Guessing og && og.TierIndex == tier && @new is GamePhase.PlayingSnippet)
+                    return FieldTransition.None;
                 if (old is GamePhase.Wrong w && tier > 0)
                     return new(FieldTransitionKind.KeepAndFocus, w.Verdict.TitleCorrect ? IslandField.Artist : IslandField.Title);
                 return tier == 0
@@ -152,6 +170,8 @@ public static class IslandRules
                 };
             case IslandKey.CtrlR:
                 return phase is GamePhase.Wrong ? new IslandCommand.Send(new GameAction.Retry()) : null;
+            case IslandKey.CtrlShiftR:
+                return ShowsRestart(phase) ? new IslandCommand.Restart() : null;
             case IslandKey.Escape:
                 return IsGuessPhase(phase) ? new IslandCommand.Send(new GameAction.GiveUp()) : new IslandCommand.Collapse();
             case IslandKey.Tab or IslandKey.BackTab:
@@ -187,6 +207,7 @@ public static class IslandKeys
             VkTab when none => IslandKey.Tab,
             VkTab when shift && !ctrl && !alt => IslandKey.BackTab,
             VkR when ctrl && !alt && !shift => IslandKey.CtrlR,
+            VkR when ctrl && !alt && shift => IslandKey.CtrlShiftR,
             _ => null,
         };
     }

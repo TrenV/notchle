@@ -30,6 +30,8 @@ public static class IslandSnapshots
         public double SnippetElapsed { get; init; } = 2;
         public bool Tall { get; init; }
         public bool TopTaskbar { get; init; }
+        /// Draw the ↺ button in its hover state (a tooltip popup can't be captured offscreen).
+        public bool RestartHover { get; init; }
         /// Track 5 ("Northbound") has two artists.
         public int TrackIndex { get; init; } = 6;
         /// Tests render their own state.
@@ -69,6 +71,9 @@ public static class IslandSnapshots
         new("27-collapsed-set-result", new GamePhase.SetComplete(20)) { Expanded = false, SetEndAgo = 1 },
         new("28-collapsed-error", new GamePhase.Error("x")) { Expanded = false },
         new("29-below-top-taskbar", new GamePhase.Guessing(1)) { TopTaskbar = true, Title = "Glass" },
+        new("30-guessing-replay-hover", new GamePhase.Guessing(1)) { Title = "Paper Lanterns", Artist = "Kites", RestartHover = true },
+        new("31-correct-restart-hover", new GamePhase.Correct(0)) { RestartHover = true },
+        new("32-revealed-restart-hover", new GamePhase.Revealed(null)) { RestartHover = true, FullTrack = false },
     ];
 
     /// Writes one PNG per scenario into <paramref name="directory"/>. Runs on an STA thread of
@@ -167,11 +172,29 @@ public static class IslandSnapshots
         for (var pass = 0; pass < 2; pass++)
         {
             view.Update(frame, now, sc.ReduceMotion);
+            if (sc.RestartHover)
+                foreach (var button in Descendants<IslandIconButton>(view)) button.Highlighted = true;
             root.Measure(new Size(width, height));
             root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
         }
         return (root, view, session);
+    }
+
+    /// Every element of type T under <paramref name="root"/> (visual and logical children).
+    internal static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        var seen = new HashSet<DependencyObject>();
+        var stack = new Stack<DependencyObject>([root]);
+        while (stack.Count > 0)
+        {
+            var d = stack.Pop();
+            if (!seen.Add(d)) continue;
+            if (d is T match) yield return match;
+            if (d is Visual or System.Windows.Media.Media3D.Visual3D)
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) stack.Push(VisualTreeHelper.GetChild(d, i));
+            foreach (var child in LogicalTreeHelper.GetChildren(d).OfType<DependencyObject>()) stack.Push(child);
+        }
     }
 
     internal static BitmapSource Render(Scenario sc)

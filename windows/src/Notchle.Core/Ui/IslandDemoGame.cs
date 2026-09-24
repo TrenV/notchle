@@ -135,6 +135,15 @@ public sealed class IslandDemoGame
             case (GameAction.Retry, GamePhase.Wrong w):
                 PlaySnippet(w.TierIndex + 1);
                 break;
+            case (GameAction.Restart, GamePhase.PlayingSnippet p):
+                PlaySnippet(p.TierIndex);
+                break;
+            case (GameAction.Restart, GamePhase.Guessing g):
+                PlaySnippet(g.TierIndex);
+                break;
+            case (GameAction.Restart, GamePhase.Correct or GamePhase.Revealed):
+                Log("song restarts from 0:00"); // no audio in the demo
+                break;
             case (GameAction.GiveUp, GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Wrong):
                 _snippetToken++;
                 _set(s with { Results = [.. s.Results, new TrackOutcome.Missed()] });

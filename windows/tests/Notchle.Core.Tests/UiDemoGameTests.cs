@@ -41,6 +41,28 @@ public class UiDemoGameTests
     }
 
     [Fact]
+    public void RestartReplaysTheSnippetAtTheSameTierAndIsIgnoredInWrong()
+    {
+        _state = IslandDemoGame.SampleState(new GamePhase.Guessing(1));
+        _game.Send(new GameAction.Restart());
+        Assert.Equal(new GamePhase.PlayingSnippet(1), _state.Phase);
+        _game.Send(new GameAction.Restart()); // again mid-snippet: the first timer is stale now
+        RunScheduled();
+        Assert.Equal(new GamePhase.Guessing(1), _state.Phase);
+        Assert.Empty(_queue);
+
+        var wrong = IslandDemoGame.SampleState(new GamePhase.Wrong(0, new Verdict(true, false)));
+        _state = wrong;
+        _game.Send(new GameAction.Restart());
+        Assert.Same(wrong, _state);
+
+        var correct = IslandDemoGame.SampleState(new GamePhase.Correct(0));
+        _state = correct;
+        _game.Send(new GameAction.Restart());
+        Assert.Same(correct, _state);
+    }
+
+    [Fact]
     public void SeveralArtistsAreAllNeededInAnyOrder()
     {
         _state = IslandDemoGame.SampleState(new GamePhase.Guessing(0), index: 5);

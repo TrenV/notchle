@@ -81,6 +81,19 @@ public sealed class SpotifyWebPlayer : IPlayer
         await SendAsync(() => SpotifyPlayerApi.Resume(_deviceId), cancellationToken).ConfigureAwait(false);
     }
 
+    /// The same device lookup / transfer as a snippet, then play from 0 and leave it playing.
+    /// Bumping the generation first means a cancelled snippet's late pause won't stop it.
+    public async Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _generation);
+        cancellationToken.ThrowIfCancellationRequested();
+        var device = await LocalDeviceAsync(cancellationToken).ConfigureAwait(false);
+        _deviceId = device.Id!;
+        if (!device.IsActive)
+            await SendAsync(() => SpotifyPlayerApi.Transfer(device.Id!), cancellationToken).ConfigureAwait(false);
+        await SendAsync(() => SpotifyPlayerApi.Play(device.Id!, track.Uri, 0), cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task StopAsync()
     {
         Interlocked.Increment(ref _generation);

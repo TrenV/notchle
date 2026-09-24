@@ -133,7 +133,19 @@ public sealed class IslandSession
                 break;
             case IslandCommand.CloseSettings: ShowingSettings = false; break;
             case IslandCommand.Focus f: RequestFocus(f.Field); break;
+            case IslandCommand.Restart: Restart(); break;
         }
+    }
+
+    /// The ↺ button / Ctrl+Shift+R. In a guess phase the snippet replays at the same tier: the
+    /// typed text and focus stay, and the progress ring / bar start over now (from PlayingSnippet
+    /// the phase doesn't change, so StateDidChange won't restart them). In Correct / Revealed the
+    /// song starts over. Ignored elsewhere, like the engine does.
+    public void Restart()
+    {
+        if (!IslandRules.ShowsRestart(State.Phase)) return;
+        if (IslandRules.ShowsGuessFields(State.Phase)) SnippetStart = Now;
+        Send(new GameAction.Restart());
     }
 
     public void Load()

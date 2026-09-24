@@ -30,6 +30,9 @@ public sealed class SpotifyConnectPlayer(string? clientId, ISpotifyTokenStore to
     public Task ContinuePlayingAsync(CancellationToken cancellationToken = default) =>
         _inner.ContinuePlayingAsync(cancellationToken);
 
+    public Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default) =>
+        _inner.RestartTrackAsync(track, cancellationToken);
+
     public Task StopAsync() => _inner.StopAsync();
 
     /// "Connect Spotify…": browser sign-in (PKCE), tokens into the DPAPI store.

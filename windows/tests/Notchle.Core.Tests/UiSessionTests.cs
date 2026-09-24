@@ -91,6 +91,60 @@ public class UiSessionTests
     }
 
     [Fact]
+    public void ReplayWhileGuessingKeepsTextAndFocusAndRestartsTheRing()
+    {
+        var s = Make(new GamePhase.Guessing(0), out var state);
+        s.TitleText = "Paper";
+        s.ArtistText = "Kit";
+        s.FocusedField = IslandField.Artist;
+        var token = s.FocusToken;
+        _clock.Advance(7);
+
+        Assert.True(s.HandleKey(IslandKey.CtrlShiftR));
+        Assert.Equal([new GameAction.Restart()], _sent);
+        Assert.Equal(_clock.Now, s.SnippetStart);
+
+        _clock.Advance(0.05); // the engine's new state arrives a moment later
+        s.StateDidChange(state, state with { Phase = new GamePhase.PlayingSnippet(0) });
+        Assert.Equal(("Paper", "Kit"), (s.TitleText, s.ArtistText));
+        Assert.Equal(token, s.FocusToken); // no focus request: focus stays in Artist
+        Assert.Equal(IslandField.Artist, s.FocusedField);
+    }
+
+    [Fact]
+    public void ReplayMidSnippetRestartsTheRingAlthoughThePhaseStaysTheSame()
+    {
+        var s = Make(new GamePhase.PlayingSnippet(1), out _);
+        var started = s.SnippetStart;
+        _clock.Advance(4);
+        s.Perform(new IslandCommand.Restart());
+        Assert.Equal([new GameAction.Restart()], _sent);
+        Assert.NotEqual(started, s.SnippetStart);
+        Assert.Equal(_clock.Now, s.SnippetStart);
+        Assert.Equal(0, s.Indicator().Progress);
+    }
+
+    [Fact]
+    public void RestartInCorrectSendsRestartAndLeavesTheSnippetClockAlone()
+    {
+        var s = Make(new GamePhase.Revealed(null), out _);
+        var started = s.SnippetStart;
+        _clock.Advance(3);
+        Assert.True(s.HandleKey(IslandKey.CtrlShiftR));
+        Assert.Equal([new GameAction.Restart()], _sent);
+        Assert.Equal(started, s.SnippetStart);
+    }
+
+    [Fact]
+    public void NoRestartInWrong()
+    {
+        var s = Make(new GamePhase.Wrong(0, new Verdict(true, false)), out _);
+        Assert.False(s.HandleKey(IslandKey.CtrlShiftR));
+        s.Restart();
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
     public void UnsupportedLinkShowsAMessage()
     {
         var s = Make(new GamePhase.Idle(), out _);

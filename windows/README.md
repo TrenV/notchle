@@ -55,7 +55,8 @@ Progress and settings live in `%APPDATA%\Notchle\progress.json`.
 Plays `Track.PreviewUrl` with `Windows.Media.Playback.MediaPlayer`. It needs no login. Its
 `CommandManager` is off, so the song never shows up in the Windows media flyout, on the lock
 screen, or under the media keys. Tracks without a preview clip report "no preview".
-"Keeps playing" after a correct guess stops when the ~30 s clip ends.
+"Keeps playing" after a correct guess stops when the ~30 s clip ends. **Restart song** (↺ or
+Ctrl+Shift+R on the answer screen) seeks the clip back to 0:00 and plays it to the end.
 
 ### Spotify Connect (full tracks, optional)
 
@@ -88,6 +89,9 @@ Each snippet runs these steps:
 4. `GET /v1/me/player` is polled until `progress_ms` reaches the end of the snippet.
 5. `PUT /v1/me/player/pause` stops it.
 
+**Restart song** (↺ or Ctrl+Shift+R on the answer screen) runs steps 1–3 with `position_ms` 0
+and never pauses. **Replay snippet** (the same button while guessing) is just the snippet again.
+
 These errors get their own messages: 401 means signed out or expired (the token is
 refreshed once first). 403 means Premium or user management. 404 means the Spotify app
 is not open. 429 means rate limited.
@@ -108,4 +112,5 @@ so a wall-clock sleep made every snippet short. Both Windows players time snippe
 If the position stops moving, the snippet fails as stalled. Cancelling a snippet (a guess
 while it plays) pauses right away and throws `OperationCanceledException`.
 `AppCoordinator` runs playback strictly in order: a new operation cancels the running one
-and waits for it to finish before it starts.
+and waits for it to finish before it starts. So a restart (or a replayed snippet) always starts
+after the cancelled snippet has paused, and that pause can't cut it off.

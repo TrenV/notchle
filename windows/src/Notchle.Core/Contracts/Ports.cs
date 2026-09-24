@@ -21,6 +21,8 @@ public sealed class SourceException(SourceErrorKind kind, string? detail = null)
 ///   macOS players were measured starting ~250–300 ms late) and playback is paused.
 ///   Cancellation must pause promptly and throw OperationCanceledException.
 /// - ContinuePlayingAsync resumes the current track from where it is paused.
+/// - RestartTrackAsync plays the track from 0:00 and keeps playing; a cancelled snippet's
+///   late pause must not stop it.
 /// - Nothing an implementation does may reveal the title or artist on screen.
 public interface IPlayer
 {
@@ -30,6 +32,8 @@ public interface IPlayer
 
     Task PlaySnippetAsync(Track track, double start, double seconds, CancellationToken cancellationToken);
     Task ContinuePlayingAsync(CancellationToken cancellationToken = default);
+    /// Plays the track from 0:00 and keeps playing (no pause). Must not reveal the title on screen.
+    Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default);
     Task StopAsync();
 }
 

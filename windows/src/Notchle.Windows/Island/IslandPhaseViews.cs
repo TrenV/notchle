@@ -174,7 +174,9 @@ internal sealed class GuessView : PhaseView
     public GuessView(IslandContext ctx)
     {
         _ctx = ctx;
-        Top(Ui.Bar(Ui.Row(8, _eq, _question, _status), _dots, 18));
+        // ↺ replays the snippet at the same tier; the typed text and focus stay where they are.
+        var replay = RestartButton.Create(IslandScreen.Guess.RestartLabel, ctx);
+        Top(Ui.Bar(Ui.Row(8, _eq, _question, _status), Ui.Row(6, replay, _dots), 22));
         Top(_bar, 9);
         var fields = new Grid();
         fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -216,6 +218,17 @@ internal sealed class GuessView : PhaseView
         _ctx.ArtistField.Sync(_ctx.Session.ArtistText);
         _submit.Enabled = _ctx.Session.CanSubmitGuess;
     }
+}
+
+/// The ↺ button of the guess and answer views (not in Wrong: Retry is the way on from there).
+internal static class RestartButton
+{
+    public static IslandIconButton Create(string label, IslandContext ctx) =>
+        new(Icons.Restart(IslandTheme.Secondary), label, KeyHints.CtrlShiftR, () =>
+        {
+            ctx.Session.Restart();
+            ctx.Changed();
+        });
 }
 
 // MARK: Wrong
@@ -264,7 +277,9 @@ internal sealed class AnswerView : PhaseView
         _screen = screen;
         var headline = Ui.Text(screen.Headline, 12, screen.Correct ? IslandTheme.GreenBrush : IslandTheme.Secondary, FontWeights.SemiBold);
         var icon = screen.Correct ? Icons.CheckSeal(IslandTheme.GreenBrush) : Icons.Eye(IslandTheme.Secondary);
-        Top(Ui.Bar(Ui.Row(6, icon, headline), _eq, 18));
+        // ↺ restarts the whole song from 0:00; the answer stays on screen.
+        var restart = RestartButton.Create(IslandScreen.Answer.RestartLabel, ctx);
+        Top(Ui.Bar(Ui.Row(6, icon, headline), Ui.Row(8, restart, _eq), 22));
         Top(Ui.Text(screen.Title, 19, IslandTheme.Primary, FontWeights.Bold), 10);
         Top(Ui.Text(screen.Artists, 13, IslandTheme.Secondary, FontWeights.Medium), 2);
         UIElement? hint = screen.PreviewHint is { } h

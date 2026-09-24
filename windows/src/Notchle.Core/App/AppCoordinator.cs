@@ -28,7 +28,7 @@ public sealed class AppCoordinator
 
     /// Playback operations run strictly one after another. A new operation cancels the one in
     /// flight (a snippet, typically) and waits for it to wind down before starting, so a
-    /// "continue playing" can never race ahead of the snippet's own pause.
+    /// "continue playing" or a restart can never race ahead of the snippet's own pause.
     private Task _playbackTask = Task.CompletedTask;
     private CancellationTokenSource _playbackCts = new();
     private CancellationTokenSource? _fetchCts;
@@ -233,6 +233,17 @@ public sealed class AppCoordinator
                 {
                     try { await player.ContinuePlayingAsync(token).ConfigureAwait(false); }
                     catch (Exception error) { Trace.TraceWarning($"Notchle: continue playing failed: {error.Message}"); }
+                });
+                break;
+
+            case GameEffect.RestartTrack restart:
+                // Through the queue like everything else: the running snippet is cancelled and
+                // has paused before the song starts over, so its pause can't cut the restart off.
+                EnqueuePlayback(async (player, token) =>
+                {
+                    try { await player.RestartTrackAsync(restart.Track, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { /* superseded */ }
+                    catch (Exception error) { Trace.TraceWarning($"Notchle: restarting the song failed: {error.Message}"); }
                 });
                 break;
 

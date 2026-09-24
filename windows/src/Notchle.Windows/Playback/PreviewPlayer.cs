@@ -19,6 +19,8 @@ public sealed class PreviewPlayer : IPlayer, IDisposable
     private MediaPlayer? _player;
     private volatile bool _ended;
     private volatile string? _failure;
+    /// The clip in the MediaPlayer's Source, so a restart can skip reloading it.
+    private Uri? _loadedUrl;
     /// Bumped by every public operation, so a cancelled snippet's late cleanup can't pause a
     /// newer snippet or the song ContinuePlayingAsync just resumed.
     private int _generation;
@@ -68,6 +70,24 @@ public sealed class PreviewPlayer : IPlayer, IDisposable
         return Task.CompletedTask;
     }
 
+    /// Seeks to 0:00 and plays on to the end of the clip. Bumping the generation first means a
+    /// cancelled snippet's late PauseIfStill can't pause it.
+    public async Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        if (track.PreviewUrl is not { } url) throw new PlayerException(PlayerErrorKind.NoPreview);
+        Interlocked.Increment(ref _generation);
+        cancellationToken.ThrowIfCancellationRequested();
+        var player = MediaPlayer();
+        if (player.Source is null || _loadedUrl != url)
+        {
+            player.Pause();
+            await OpenAsync(player, url, cancellationToken).ConfigureAwait(false);
+        }
+        _ended = false;
+        player.PlaybackSession.Position = TimeSpan.Zero;
+        player.Play();
+    }
+
     public Task StopAsync()
     {
         Interlocked.Increment(ref _generation);
@@ -75,6 +95,7 @@ public sealed class PreviewPlayer : IPlayer, IDisposable
         {
             player.Pause();
             player.Source = null;
+            _loadedUrl = null;
         }
         return Task.CompletedTask;
     }
@@ -122,6 +143,7 @@ public sealed class PreviewPlayer : IPlayer, IDisposable
     {
         _ended = false;
         _failure = null;
+        _loadedUrl = null;
         var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnOpened(MediaPlayer s, object e) => opened.TrySetResult();
         void OnFailed(MediaPlayer s, MediaPlayerFailedEventArgs e) =>
@@ -136,6 +158,7 @@ public sealed class PreviewPlayer : IPlayer, IDisposable
             try
             {
                 await opened.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+                _loadedUrl = url;
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
