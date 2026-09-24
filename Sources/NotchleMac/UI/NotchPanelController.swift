@@ -18,6 +18,10 @@ public final class NotchPanelController {
     public private(set) var geometry: NotchGeometry?
 
     /// How the panel takes the keyboard when a phase wants typing.
+    ///
+    /// Intended behaviour (Tren, 2026-09-24): typing starts only after a click on the notch,
+    /// so Notchle never steals keystrokes from the app in front. Observed that way with
+    /// `.makeKey`; don't switch the default to `.makeKeyAndActivate`.
     public enum KeyboardStrategy: Sendable {
         /// `orderFrontRegardless` + `makeKey` on the non-activating panel; the app stays inactive.
         case makeKey
