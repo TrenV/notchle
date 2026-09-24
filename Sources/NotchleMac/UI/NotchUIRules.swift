@@ -13,6 +13,8 @@ public enum UIKeyInput: Hashable, Sendable {
     case commandShiftR
     /// ⌘⇧S: skip to the next, longer tier.
     case commandShiftS
+    /// ⌘⇧N: at the end of a set, a set of new songs.
+    case commandShiftN
     /// ⌘N: quit the playlist (arms the confirmation, or confirms it).
     case commandN
     /// ⌘1 / ⌘2: the Play / History tab.
@@ -180,7 +182,7 @@ public enum NotchUIRules {
         case nil: return fields ? .expandAndReplay : .ignore
         case .returnKey?: return fields ? .expand : .perform
         case .tab?, .backTab?: return fields ? .expand : .ignore
-        case .commandR?, .commandShiftR?, .commandShiftS?: return .perform
+        case .commandR?, .commandShiftR?, .commandShiftS?, .commandShiftN?: return .perform
         // Arming opens the panel itself, so the confirmation is visible.
         case .commandN?: return showsQuit(phase) ? .perform : .ignore
         case .command1?, .command2?: return .perform   // opens the panel on that tab
@@ -334,6 +336,33 @@ public enum NotchUIRules {
         }
     }
 
+    /// The end-of-set choices shown, primary first. `availableNew` is
+    /// `GameEngine.availableNewCount(state)`. With no new songs left only Replay remains;
+    /// after 20/20 there are no misses to keep. Empty outside setComplete/setFailed.
+    public static func setEndChoices(_ phase: GamePhase, availableNew: Int) -> [SetChoice] {
+        switch phase {
+        case .setFailed: availableNew > 0 ? [.keepMisses, .replay, .allNew] : [.replay]
+        case .setComplete: availableNew > 0 ? [.allNew, .replay] : [.replay]
+        default: []
+        }
+    }
+
+    /// Size of the new set `.allNew` would start: "20 new songs", or fewer near the end.
+    public static func newSongsCount(availableNew: Int, _ config: GameConfig) -> Int {
+        min(availableNew, max(1, config.setSize))
+    }
+
+    public static func setChoiceTitle(_ choice: SetChoice, availableNew: Int, total: Int,
+                                      _ config: GameConfig) -> String {
+        switch choice {
+        case .replay: return "Replay these \(total)"
+        case .keepMisses: return "Keep misses + new"
+        case .allNew:
+            let n = newSongsCount(availableNew: availableNew, config)
+            return n == 1 ? "1 new song" : "\(n) new songs"
+        }
+    }
+
     /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content. `config`
     /// decides whether a longer tier is left to skip to. `quitArmed`: "Quit playlist?" is showing,
     /// so Esc cancels it (and nothing else). `historyOpen`: the History tab covers the game,
@@ -341,7 +370,7 @@ public enum NotchUIRules {
     /// giving up); ⌘1/⌘2 and ⌘N still work.
     public static func command(for key: UIKeyInput, phase: GamePhase, focused: UIField?,
                                settingsOpen: Bool = false, config: GameConfig = GameConfig(),
-                               quitArmed: Bool = false, historyOpen: Bool = false) -> UICommand? {
+                               quitArmed: Bool = false, historyOpen: Bool = false, availableNew: Int = 0) -> UICommand? {
         if key == .command1 { return .showTab(.play) }
         if key == .command2 { return .showTab(.history) }
         if quitArmed, key == .escape { return .disarmQuit }
@@ -362,15 +391,21 @@ public enum NotchUIRules {
             case .playingSnippet, .guessing: return .submitGuess
             case .wrong: return .send(.retry)
             case .correct, .revealed, .error: return .send(.next)
-            case .setComplete: return .send(.nextSet)
-            case .setFailed: return .send(.replaySet)
+            case .setComplete, .setFailed:
+                return setEndChoices(phase, availableNew: availableNew).first.map { .send(.startSet($0)) }
             case .loading: return nil
             }
         case .commandR:
             if case .wrong = phase { return .send(.retry) }
             return nil
         case .commandShiftR:
+            if setEndChoices(phase, availableNew: availableNew).contains(.replay) {
+                return .send(.startSet(.replay))
+            }
             return canRestart(phase) ? .send(.restart) : nil
+        case .commandShiftN:
+            return setEndChoices(phase, availableNew: availableNew).contains(.allNew)
+                ? .send(.startSet(.allNew)) : nil
         case .commandShiftS:
             return skipSeconds(phase, config) != nil ? .send(.skip) : nil
         case .commandN:

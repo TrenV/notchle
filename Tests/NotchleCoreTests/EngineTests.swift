@@ -102,9 +102,9 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
     @Test func oneMissFailsTheSetAndReplayReshufflesSameTracks() throws {
         var e = engine(tracks: 25)
         let set = e.state.currentSet
-        #expect(playSet(&e, missing: [7]) == [.stop])
+        #expect(playSet(&e, missing: [7]) == [.stop, .persistProgress])
         #expect(e.state.phase == .setFailed(correctCount: 19))
-        #expect(e.state.clearedTrackIDs.isEmpty)
+        #expect(e.state.clearedTrackIDs == Set(set.map(\.id)).subtracting([set[7].id]))
 
         let effects = e.send(.replaySet)
         #expect(e.state.phase == .playingSnippet(tierIndex: 0))
@@ -289,7 +289,8 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
     @Test func actionsOutOfPhaseAreNoOps() {
         var idle = GameEngine(judge: IDJudge(), seed: 1)
         for action: GameAction in [.loaded(listing(3)), .snippetFinished, right(nil), .retry, .giveUp,
-                                   .next, .nextSet, .replaySet, .loadFailed(message: "x"),
+                                   .next, .nextSet, .replaySet, .startSet(.replay), .startSet(.keepMisses),
+                                   .startSet(.allNew), .loadFailed(message: "x"),
                                    .playbackFailed(message: "x")] {
             let before = idle.state
             #expect(idle.send(action) == [])
@@ -297,7 +298,8 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         }
 
         var playing = engine()
-        for action: GameAction in [.retry, .next, .nextSet, .replaySet, .loaded(listing(3)),
+        for action: GameAction in [.retry, .next, .nextSet, .replaySet, .startSet(.allNew),
+                                   .startSet(.replay), .startSet(.keepMisses), .loaded(listing(3)),
                                    .loadFailed(message: "x")] {
             let before = playing.state
             #expect(playing.send(action) == [])
@@ -306,7 +308,8 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
 
         var correct = engine()
         _ = correct.send(right(correct.state.currentTrack))
-        for action: GameAction in [right(correct.state.currentTrack), .retry, .giveUp, .nextSet, .replaySet] {
+        for action: GameAction in [right(correct.state.currentTrack), .retry, .giveUp, .nextSet, .replaySet,
+                                   .startSet(.replay), .startSet(.keepMisses), .startSet(.allNew)] {
             let before = correct.state
             #expect(correct.send(action) == [])
             #expect(correct.state == before)
@@ -314,7 +317,7 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
 
         var complete = engine(tracks: 20)
         _ = playSet(&complete)
-        for action: GameAction in [.replaySet, .next, .giveUp, .playbackFailed(message: "x")] {
+        for action: GameAction in [.next, .giveUp, .playbackFailed(message: "x")] {
             let before = complete.state
             #expect(complete.send(action) == [])
             #expect(complete.state == before)
@@ -545,5 +548,141 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
         let completeState = complete.state
         #expect(complete.send(.skip) == [])
         #expect(complete.state == completeState)
+    }
+
+    // MARK: End-of-set choices
+
+    @Test func replayFromBothEndsKeepsTracksAndSetNumber() {
+        for missing: Set<Int> in [[], [2, 9]] {
+            var e = engine(tracks: 50)
+            let ids = Set(e.state.currentSet.map(\.id)), order = e.state.currentSet.map(\.id)
+            _ = playSet(&e, missing: missing)
+            let effects = e.send(.startSet(.replay))
+            #expect(e.state.phase == .playingSnippet(tierIndex: 0))
+            #expect(Set(e.state.currentSet.map(\.id)) == ids)
+            #expect(e.state.currentSet.map(\.id) != order)   // reshuffled (seed 42)
+            #expect(e.state.results.isEmpty && e.state.index == 0)
+            #expect(e.state.setNumber == 1)
+            #expect(effects == [.playSnippet(e.state.currentSet[0], start: 0, seconds: 5)])
+        }
+    }
+
+    @Test func keepMissesCarriesTheMissesAndFillsWithNewTracks() {
+        var e = engine(tracks: 50)
+        let first = e.state.currentSet
+        _ = playSet(&e, missing: [0, 5, 13])
+        let misses = Set([0, 5, 13].map { first[$0].id })
+        _ = e.send(.startSet(.keepMisses))
+        let ids = e.state.currentSet.map(\.id)
+        #expect(ids.count == 20)
+        #expect(Set(ids).count == 20)                                // no duplicates
+        #expect(misses.isSubset(of: Set(ids)))                        // the misses are carried
+        #expect(Set(ids).subtracting(misses).isDisjoint(with: Set(first.map(\.id))))  // the rest is new
+        #expect(Set(ids).isDisjoint(with: e.state.clearedTrackIDs))
+        #expect(e.state.setNumber == 2)
+        #expect(e.state.results.isEmpty && e.state.phase == .playingSnippet(tierIndex: 0))
+        // Shuffled together, not misses-first.
+        #expect(Set(ids.prefix(3)) != misses)
+    }
+
+    @Test func keepMissesWithFewNewTracksLeftGivesASmallerSet() {
+        var e = engine(tracks: 24)   // 4 new tracks after the first set
+        _ = playSet(&e, missing: [1, 2])
+        #expect(GameEngine.availableNewCount(e.state) == 4)
+        _ = e.send(.startSet(.keepMisses))
+        #expect(e.state.currentSet.count == 6)
+        #expect(Set(e.state.currentSet.map(\.id)).count == 6)
+    }
+
+    @Test func keepMissesWithNoNewTracksPlaysOnlyTheMisses() {
+        var e = engine(tracks: 20)
+        let first = e.state.currentSet
+        _ = playSet(&e, missing: [4])
+        _ = e.send(.startSet(.keepMisses))
+        #expect(e.state.currentSet.map(\.id) == [first[4].id])
+        #expect(e.state.phase == .playingSnippet(tierIndex: 0))
+    }
+
+    @Test func keepMissesAfterAPerfectSetIsAllNew() {
+        var a = engine(tracks: 50), b = engine(tracks: 50)
+        _ = playSet(&a); _ = playSet(&b)
+        let ea = a.send(.startSet(.keepMisses)), eb = b.send(.startSet(.allNew))
+        #expect(ea == eb)
+        #expect(a.state == b.state)
+        #expect(a.state.setNumber == 2)
+    }
+
+    @Test func allNewFromAFailedSetSkipsTheWholeJustPlayedSet() {
+        var e = engine(tracks: 50)
+        let first = Set(e.state.currentSet.map(\.id))
+        _ = playSet(&e, missing: [3, 4])
+        #expect(GameEngine.availableNewCount(e.state) == 20)   // 30 new, capped at setSize
+        _ = e.send(.startSet(.allNew))
+        #expect(e.state.currentSet.count == 20)
+        #expect(Set(e.state.currentSet.map(\.id)).count == 20)
+        #expect(Set(e.state.currentSet.map(\.id)).isDisjoint(with: first))
+        #expect(e.state.setNumber == 2)
+    }
+
+    @Test func allNewWithFewLeftIsSmallerAndWithNoneIsExhausted() {
+        var e = engine(tracks: 27)
+        _ = playSet(&e, missing: [0])
+        _ = e.send(.startSet(.allNew))
+        #expect(e.state.currentSet.count == 7)
+        _ = playSet(&e, missing: [0])
+        // Misses are never cleared: set 1's miss is outside the set just played, so it is new again.
+        #expect(GameEngine.availableNewCount(e.state) == 1)
+        _ = e.send(.startSet(.allNew))
+        #expect(e.state.currentSet.count == 1)
+        _ = playSet(&e)
+        #expect(GameEngine.availableNewCount(e.state) == 1)   // set 2's miss
+        _ = e.send(.startSet(.allNew)); _ = playSet(&e)
+        #expect(GameEngine.availableNewCount(e.state) == 0)
+        #expect(e.send(.startSet(.allNew)) == [])
+        #expect(e.state.phase == .exhausted)
+        #expect(e.state.clearedTrackIDs.count == 27)
+    }
+
+    @Test func failedSetsGrowTheClearedSetAndPersist() {
+        var e = engine(tracks: 50)
+        let first = e.state.currentSet
+        #expect(playSet(&e, missing: Set(0..<10)) == [.stop, .persistProgress])
+        #expect(e.state.clearedTrackIDs == Set(first[10...].map(\.id)))
+        _ = e.send(.startSet(.replay))
+        let replayed = e.state.currentSet
+        _ = playSet(&e, missing: [0])
+        #expect(e.state.clearedTrackIDs == Set(first.map(\.id)).subtracting([replayed[0].id]))
+    }
+
+    @Test func setChoicesAreDeterministicBySeed() {
+        for choice in SetChoice.allCases {
+            var a = engine(tracks: 60, seed: 7), b = engine(tracks: 60, seed: 7), c = engine(tracks: 60, seed: 8)
+            _ = playSet(&a, missing: [1, 2]); _ = playSet(&b, missing: [1, 2]); _ = playSet(&c, missing: [1, 2])
+            _ = a.send(.startSet(choice)); _ = b.send(.startSet(choice)); _ = c.send(.startSet(choice))
+            #expect(a.state.currentSet == b.state.currentSet, "\(choice)")
+            #expect(a.state.currentSet != c.state.currentSet, "\(choice)")
+        }
+    }
+
+    @Test func aliasesMatchStartSet() {
+        for missing: Set<Int> in [[], [3]] {
+            var a = engine(tracks: 50), b = engine(tracks: 50)
+            _ = playSet(&a, missing: missing); _ = playSet(&b, missing: missing)
+            var a2 = a, b2 = b
+            #expect(a.send(.nextSet) == b.send(.startSet(.allNew)))
+            #expect(a.state == b.state)
+            #expect(a2.send(.replaySet) == b2.send(.startSet(.replay)))
+            #expect(a2.state == b2.state)
+        }
+    }
+
+    @Test func availableNewCountIgnoresClearedAndCurrentAndDuplicates() {
+        var tracks = listing(30).tracks
+        tracks.append(tracks[25])   // duplicate listing entry
+        var e = GameEngine(clearedTrackIDs: ["t29"], judge: IDJudge(), seed: 1)
+        _ = e.send(.load(ref))
+        _ = e.send(.loaded(SourceListing(ref: ref, name: "D", tracks: tracks)))
+        // 30 unique, 1 cleared, 20 in the set → 9.
+        #expect(GameEngine.availableNewCount(e.state) == 9)
     }
 }

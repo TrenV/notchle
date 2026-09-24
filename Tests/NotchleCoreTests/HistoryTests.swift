@@ -318,3 +318,14 @@ actor ArtworkFakeHTTP: HTTPClient {
         #expect(await http.requests.count == 2)   // invalid id: no request at all
     }
 }
+
+/// The set-end path: the LAST track's outcome must still be recorded when the set ends (a merge
+/// on the Windows side once dropped it and no test noticed).
+@Test func lastTrackOfTheSetIsRecordedAtTheSetEnd() {
+    var e = engine(tracks: 1, setSize: 1)
+    let id = e.state.currentTrack!.id
+    _ = e.send(.playbackFailed(message: "x"))
+    let effects = e.send(.next)
+    #expect(e.state.phase == .setFailed(correctCount: 0))
+    #expect(records(effects) == [Record(trackID: id, outcome: .missed, wrong: 0, skips: 0)])
+}

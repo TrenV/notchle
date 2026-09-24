@@ -154,7 +154,10 @@ and `%APPDATA%\Notchle`.
 
 ## Playing
 
-- **Enter** submits (and means Next / Next set / Replay).
+- **Enter** submits (and means Next, or the highlighted choice at the end of a set).
+- At the end of a set every song you got right counts as cleared. Then pick **Keep misses + new**
+  (the ones you missed plus new songs up to 20), **Replay these 20** (**⌘⇧R** / **Ctrl+Shift+R**)
+  or **20 new songs** (**⌘⇧N** / **Ctrl+Shift+N**; fewer near the end of the playlist).
 - **Tab** switches between Title and Artist(s).
 - **Esc** gives up on this song.
 - **⌘R** (macOS) / **Ctrl+R** (Windows) retries with a longer snippet after a wrong guess.

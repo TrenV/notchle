@@ -10,9 +10,13 @@ import Foundation
 // - A guess needs both title and artists: every credited artist, in any order. Typos are
 //   forgiven as long as the gist is right (Tren, 2026-09-24; see FuzzyAnswerJudge).
 // - Correct: confetti, and the song keeps playing. `next` moves on.
-// - 20/20 in a set: `nextSet` moves to 20 unplayed tracks from the same listing.
-//   Anything less: `replaySet` replays the same 20, reshuffled.
-//   When the listing has no unplayed tracks left: `exhausted`, paste a new URL.
+// - End of a set (Tren, 2026-09-24: "add 20 new songs, or keep the songs you didn't get
+//   correctly"): every track answered correctly in the set is cleared (whether or not the set
+//   was 20/20) and persisted. Then `startSet(SetChoice)`, from setComplete or setFailed:
+//   `.replay` the same tracks reshuffled; `.keepMisses` the missed tracks plus new ones up to
+//   the set size; `.allNew` a set of new tracks (not cleared, not in the set just played).
+//   Fewer new tracks left gives a smaller set; none left (and nothing kept) gives `exhausted`,
+//   paste a new URL. `nextSet`/`replaySet` are aliases for `.allNew`/`.replay`.
 // - Snippets start at the start of the song (`GameConfig.snippetStart`).
 // - Restart (Tren, 2026-09-24: "a restart button so i can restart the song"): while guessing
 //   (`playingSnippet`/`guessing`) it replays the current tier's snippet from its start and
@@ -60,7 +64,7 @@ public struct GameState: Sendable, Hashable {
     public var results: [TrackOutcome] = []
     /// 1-based set counter within this listing.
     public var setNumber: Int = 0
-    /// Track ids that have appeared in a *completed* (20/20) set, per listing. Persisted by the
+    /// Track ids answered correctly at the end of a set, per listing. Persisted by the
     /// platform layer so a relaunch does not repeat songs you already cleared.
     public var clearedTrackIDs: Set<String> = []
     /// Incremented on every correct guess. The UI fires confetti when it changes.
@@ -102,14 +106,26 @@ public enum GameAction: Sendable, Hashable {
     case restart
     /// From `.correct`, `.revealed` or `.error`: move to the next track (or end the set).
     case next
-    /// From `.setComplete`.
+    /// From `.setComplete` or `.setFailed`: start the next set as chosen. Ignored elsewhere.
+    case startSet(SetChoice)
+    /// Alias for `startSet(.allNew)`.
     case nextSet
-    /// From `.setFailed`.
+    /// Alias for `startSet(.replay)`.
     case replaySet
     case playbackFailed(message: String)
     case configure(GameConfig)
     /// Back to `.idle`, keeping `clearedTrackIDs`.
     case reset
+}
+
+/// What to play after a set ends.
+public enum SetChoice: String, Sendable, Hashable, Codable, CaseIterable {
+    /// The same tracks, reshuffled. Keeps the set number.
+    case replay
+    /// The missed tracks plus new ones up to the set size, shuffled together.
+    case keepMisses
+    /// Only new tracks: not cleared and not in the set just played.
+    case allNew
 }
 
 public enum GameEffect: Sendable, Hashable {
