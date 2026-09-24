@@ -23,8 +23,13 @@ public struct SpotifyPlayback: Sendable, Hashable {
     public var itemURI: String?
     public var currentlyPlayingType: String?
     public var deviceID: String?
+    /// `item.linked_from.uri`: Spotify plays a relinked version for the account's market and
+    /// reports the requested track here.
+    public var linkedFromURI: String?
 
-    public init(isPlaying: Bool, progressMs: Int, itemURI: String?, currentlyPlayingType: String? = "track", deviceID: String? = nil) {
+    public init(isPlaying: Bool, progressMs: Int, itemURI: String?, currentlyPlayingType: String? = "track",
+                deviceID: String? = nil, linkedFromURI: String? = nil) {
+        self.linkedFromURI = linkedFromURI
         self.isPlaying = isPlaying
         self.progressMs = progressMs
         self.itemURI = itemURI
@@ -33,6 +38,14 @@ public struct SpotifyPlayback: Sendable, Hashable {
     }
 
     public var position: Double { Double(progressMs) / 1000 }
+
+    /// Whether this is `uri`, directly or as the relinked version of it.
+    public func isPlayingItem(_ uri: String) -> Bool { itemURI == uri || linkedFromURI == uri }
+
+    /// For error logs: what Spotify reported.
+    public var summary: String {
+        "is_playing=\(isPlaying) item=\(itemURI ?? "none") linked_from=\(linkedFromURI ?? "none") device=\(deviceID ?? "none") type=\(currentlyPlayingType ?? "none")"
+    }
     public var isAd: Bool { currentlyPlayingType == "ad" }
 }
 
@@ -42,7 +55,8 @@ public enum SpotifyPlayerAPI {
     public static let baseURL = "https://api.spotify.com/v1/"
 
     public static func devices() -> HTTPRequest { HTTPRequest(method: "GET", url: url("me/player/devices")) }
-    public static func playbackState() -> HTTPRequest { HTTPRequest(method: "GET", url: url("me/player")) }
+    /// `market=from_token` so Spotify reports `linked_from` for relinked tracks.
+    public static func playbackState() -> HTTPRequest { HTTPRequest(method: "GET", url: url("me/player?market=from_token")) }
     public static func profile() -> HTTPRequest { HTTPRequest(method: "GET", url: url("me")) }
 
     /// PUT /me/player: move playback to this Mac's Spotify app without starting anything.
@@ -92,7 +106,8 @@ public enum SpotifyPlayerAPI {
             progressMs: (root["progress_ms"] as? NSNumber)?.intValue ?? 0,
             itemURI: item?["uri"] as? String,
             currentlyPlayingType: root["currently_playing_type"] as? String,
-            deviceID: device?["id"] as? String)
+            deviceID: device?["id"] as? String,
+            linkedFromURI: (item?["linked_from"] as? [String: Any])?["uri"] as? String)
     }
 
     /// GET /me → display_name (falls back to the account id).

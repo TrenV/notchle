@@ -195,9 +195,13 @@ import Testing
                 ? HTTPResponse(status: 200, text: #"{"is_playing":true,"progress_ms":500,"item":{"uri":"spotify:track:other"}}"#)
                 : nil
         }
-        await #expect(throws: PlayerError.failed("Spotify played a different track")) {
+        do {
             try await makePlayer(web, timing: .fastTimeouts).playSnippet(of: track, from: 0, seconds: 0.1)
-        }
+            Issue.record("expected a failure")
+        } catch PlayerError.failed(let message) {
+            #expect(message.hasPrefix("Spotify played a different track"))
+            #expect(message.contains("item=spotify:track:other"))   // what Spotify reported, for the log
+        } catch { Issue.record("unexpected \(error)") }
         #expect(web.calls.last == "PUT /v1/me/player/pause")
     }
 

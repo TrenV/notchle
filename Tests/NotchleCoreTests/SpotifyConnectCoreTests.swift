@@ -383,3 +383,19 @@ final class LockedBox<T>: @unchecked Sendable {
         set { lock.lock(); _value = newValue; lock.unlock() }
     }
 }
+
+/// Spotify can play a relinked version for the account's market: it reports that version's uri
+/// in `item.uri` and the requested one in `item.linked_from.uri`. That must count as the track.
+@Test func relinkedTrackCountsAsTheRequestedOne() throws {
+    let body = Data("""
+    {"is_playing":true,"progress_ms":1200,"currently_playing_type":"track",
+     "device":{"id":"mac"},
+     "item":{"uri":"spotify:track:RELINKED","linked_from":{"uri":"spotify:track:REQUESTED"}}}
+    """.utf8)
+    let playback = try #require(SpotifyPlayerAPI.parsePlayback(body))
+    #expect(playback.linkedFromURI == "spotify:track:REQUESTED")
+    #expect(playback.isPlayingItem("spotify:track:REQUESTED"))
+    #expect(playback.isPlayingItem("spotify:track:RELINKED"))
+    #expect(!playback.isPlayingItem("spotify:track:OTHER"))
+    #expect(playback.summary.contains("linked_from=spotify:track:REQUESTED"))
+}

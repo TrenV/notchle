@@ -129,7 +129,7 @@ public final class SpotifyConnectPlayer: Player {
         while true {
             let current = try await sample()
             if current.isAd && current.isPlaying { throw PlayerError.failed("Spotify is playing an ad") }
-            let rightTrack = current.itemURI == track.uri
+            let rightTrack = current.isPlayingItem(track.uri)
             if current.isPlaying && rightTrack {
                 if abs(current.position - start) > timing.positionTolerance {
                     // Spotify ignored the position (sent before the track loaded): seek again,
@@ -143,8 +143,9 @@ public final class SpotifyConnectPlayer: Player {
                 }
             }
             if ContinuousClock.now >= deadline {
-                throw PlayerError.failed(current.isPlaying && !rightTrack
+                throw PlayerError.failed((current.isPlaying && !rightTrack
                     ? "Spotify played a different track" : "Spotify didn't start playing the track")
+                    + " (wanted \(track.uri) on device \(device); Spotify reports \(current.summary))")
             }
             try await Task.sleep(for: timing.pollInterval)
         }
@@ -158,7 +159,7 @@ public final class SpotifyConnectPlayer: Player {
         while true {
             let current = try await sample()
             if current.isAd && current.isPlaying { throw PlayerError.failed("Spotify is playing an ad") }
-            guard current.itemURI == track.uri else { throw PlayerError.failed("Spotify played a different track") }
+            guard current.isPlayingItem(track.uri) else { throw PlayerError.failed("Spotify played a different track (\(current.summary))") }
             let remaining = target - current.position
             if remaining <= timing.endLead + 0.0005 { return }
             if current.position > lastPosition {
