@@ -58,8 +58,8 @@ public static class IslandSnapshots
         new("12-correct-reduce-motion", new GamePhase.Correct(2)) { CelebrationAgo = 0.7, ReduceMotion = true },
         new("13-revealed-gave-up", new GamePhase.Revealed(null)),
         new("14-revealed-out-of-tries", new GamePhase.Revealed(new Verdict(false, true))),
-        new("15-set-complete", new GamePhase.SetComplete(20)),
-        new("16-set-failed", new GamePhase.SetFailed(14)),
+        new("15-set-complete", new GamePhase.SetComplete(20)) { State = IslandDemoGame.SetEndState(complete: true, newAvailable: 40) },
+        new("16-set-failed", new GamePhase.SetFailed(13)) { State = IslandDemoGame.SetEndState(complete: false, newAvailable: 40) },
         new("17-exhausted", new GamePhase.Exhausted()),
         new("18-error", new GamePhase.Error("Spotify is not reachable. Check your connection, then press Skip.")),
         new("19-settings", new GamePhase.Guessing(0)) { Settings = true },
@@ -80,6 +80,9 @@ public static class IslandSnapshots
         new("34-guessing-t2-no-skip", new GamePhase.Guessing(2)) { Title = "Paper Lanterns", Artist = "The Kites" },
         new("35-quit-armed", new GamePhase.Guessing(0)) { Title = "Paper", QuitArmed = true },
         new("36-correct-quit-armed", new GamePhase.Correct(0)) { QuitArmed = true },
+        new("37-set-failed-7-new", new GamePhase.SetFailed(13)) { State = IslandDemoGame.SetEndState(complete: false, newAvailable: 7) },
+        new("38-set-failed-no-new", new GamePhase.SetFailed(13)) { State = IslandDemoGame.SetEndState(complete: false, newAvailable: 0) },
+        new("39-set-complete-no-new", new GamePhase.SetComplete(20)) { State = IslandDemoGame.SetEndState(complete: true, newAvailable: 0) },
     ];
 
     /// Writes one PNG per scenario into <paramref name="directory"/>. Runs on an STA thread of

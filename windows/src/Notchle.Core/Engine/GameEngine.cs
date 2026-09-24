@@ -97,13 +97,14 @@ public sealed class GameEngine
             case GameAction.Next when phase is GamePhase.Correct or GamePhase.Revealed or GamePhase.Error:
                 return Advance();
 
-            case GameAction.NextSet when phase is GamePhase.SetComplete:
-                State = State with { SetNumber = State.SetNumber + 1 };
-                return StartNewSet();
+            case GameAction.NextSet when phase is GamePhase.SetComplete or GamePhase.SetFailed:
+                return StartSet(SetChoice.AllNew);
 
-            case GameAction.ReplaySet when phase is GamePhase.SetFailed:
-                State = State with { CurrentSet = _rng.Shuffled(State.CurrentSet), Results = Array.Empty<TrackOutcome>() };
-                return StartTrack(0);
+            case GameAction.ReplaySet when phase is GamePhase.SetComplete or GamePhase.SetFailed:
+                return StartSet(SetChoice.Replay);
+
+            case GameAction.StartSet start when phase is GamePhase.SetComplete or GamePhase.SetFailed:
+                return StartSet(start.Choice);
 
             case GameAction.PlaybackFailed failed when HasActiveTrack(phase):
                 State = State with { Phase = new GamePhase.Error(failed.Message) };
@@ -219,17 +220,66 @@ public sealed class GameEngine
 
         State = State with { Index = State.CurrentSet.Count };
         var correct = State.CorrectCount;
-        if (correct == State.CurrentSet.Count)
+        // Every set end clears the tracks answered correctly, so they are not dealt again.
+        var won = State.CurrentSet.Where((_, i) => i < State.Results.Count && State.Results[i] is TrackOutcome.Correct)
+            .Select(t => t.Id);
+        State = State with
         {
-            State = State with
+            Phase = correct == State.CurrentSet.Count ? new GamePhase.SetComplete(correct) : new GamePhase.SetFailed(correct),
+            ClearedTrackIds = new HashSet<string>(State.ClearedTrackIds.Concat(won)),
+        };
+        return [new GameEffect.Stop(), new GameEffect.PersistProgress()];
+    }
+
+    /// Distinct listing tracks that are neither cleared nor in the current set: what AllNew and
+    /// KeepMisses draw from, in listing order.
+    private static Track[] NewPool(GameState state)
+    {
+        if (state.Listing is not { } listing) return [];
+        var inSet = state.CurrentSet.Select(t => t.Id).ToHashSet();
+        var seen = new HashSet<string>();
+        return listing.Tracks
+            .Where(t => !state.ClearedTrackIds.Contains(t.Id) && !inSet.Contains(t.Id) && seen.Add(t.Id))
+            .ToArray();
+    }
+
+    /// How many new tracks StartSet(AllNew) would deal (at most SetSize): the UI's "20 new songs"
+    /// / "7 new songs"; 0 hides the choice.
+    public static int AvailableNewCount(GameState state) =>
+        Math.Min(NewPool(state).Length, Math.Max(1, state.Config.SetSize));
+
+    private IReadOnlyList<GameEffect> StartSet(SetChoice choice)
+    {
+        var size = Math.Max(1, State.Config.SetSize);
+        Track[] next;
+        switch (choice)
+        {
+            case SetChoice.Replay:
+                State = State with { CurrentSet = _rng.Shuffled(State.CurrentSet), Results = Array.Empty<TrackOutcome>() };
+                return StartTrack(0);
+            case SetChoice.KeepMisses when State.Results.Count(r => r is TrackOutcome.Correct) < State.CurrentSet.Count:
             {
-                Phase = new GamePhase.SetComplete(correct),
-                ClearedTrackIds = new HashSet<string>(State.ClearedTrackIds.Concat(State.CurrentSet.Select(t => t.Id))),
-            };
-            return [new GameEffect.Stop(), new GameEffect.PersistProgress()];
+                var misses = State.CurrentSet
+                    .Where((_, i) => !(i < State.Results.Count && State.Results[i] is TrackOutcome.Correct))
+                    .Take(size).ToArray();
+                var fresh = _rng.Shuffled(NewPool(State)).Take(size - misses.Length);
+                next = _rng.Shuffled([.. misses, .. fresh]).ToArray();
+                break;
+            }
+            default: // AllNew, and KeepMisses with nothing missed (same draws, so the same set)
+                next = _rng.Shuffled(NewPool(State)).Take(size).ToArray();
+                break;
         }
-        State = State with { Phase = new GamePhase.SetFailed(correct) };
-        return [new GameEffect.Stop()];
+        State = State with
+        {
+            SetNumber = State.SetNumber + 1, Results = Array.Empty<TrackOutcome>(), Index = 0, CurrentSet = next,
+        };
+        if (next.Length == 0)
+        {
+            State = State with { Phase = new GamePhase.Exhausted() };
+            return None;
+        }
+        return StartTrack(0);
     }
 
     /// Phases in which a track is loaded into the player, so a playback failure is meaningful.

@@ -4,14 +4,14 @@ namespace Notchle.Core.Ui;
 
 // Pure presentation rules of the Windows "island", ported from
 // Sources/NotchleMac/UI/NotchUIRules.swift. Same phases, same copy, same shortcuts
-// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Ctrl+N / Esc); the Windows-only rules (no auto-expand, hover
+// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Ctrl+Shift+N / Ctrl+N / Esc); the Windows-only rules (no auto-expand, hover
 // collapse, click-to-type) live in IslandBehavior.
 
 /// Text fields of the island.
 public enum IslandField { Url, Title, Artist }
 
 /// Keys the island handles itself; everything else goes to the focused text box.
-public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS, CtrlN }
+public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS, CtrlShiftN, CtrlN }
 
 /// What a key means in the current phase.
 public abstract record IslandCommand
@@ -180,16 +180,39 @@ public static class IslandRules
         }
     }
 
+    /// Set-end choices, primary first (Enter), for SetComplete / SetFailed; empty elsewhere.
+    /// <paramref name="availableNew"/> is GameEngine.AvailableNewCount: at 0 only Replay is left.
+    public static IReadOnlyList<SetChoice> SetEndChoices(GamePhase phase, int availableNew) => phase switch
+    {
+        GamePhase.SetComplete or GamePhase.SetFailed when availableNew <= 0 => [SetChoice.Replay],
+        GamePhase.SetComplete => [SetChoice.AllNew, SetChoice.Replay],
+        GamePhase.SetFailed => [SetChoice.KeepMisses, SetChoice.Replay, SetChoice.AllNew],
+        _ => [],
+    };
+
     /// Keyboard mapping. <paramref name="settingsOpen"/>: the settings view covers the phase.
     /// <paramref name="config"/> decides whether a longer tier is left to skip to (default tiers
     /// when null). <paramref name="quitArmed"/>: the "Quit playlist?" capsule is showing; Esc
-    /// then only disarms it.
+    /// then only disarms it. <paramref name="availableNew"/>: GameEngine.AvailableNewCount, for
+    /// the set-end choices (Enter = the primary one, Ctrl+Shift+R = replay, Ctrl+Shift+N = new).
     public static IslandCommand? Command(IslandKey key, GamePhase phase, IslandField? focused, bool settingsOpen = false,
-        GameConfig? config = null, bool quitArmed = false)
+        GameConfig? config = null, bool quitArmed = false, int availableNew = 0)
     {
         if (quitArmed && key == IslandKey.Escape) return new IslandCommand.DisarmQuit();
         if (key == IslandKey.CtrlN) return ShowsQuit(phase) ? new IslandCommand.Quit() : null;
         if (settingsOpen) return key == IslandKey.Escape ? new IslandCommand.CloseSettings() : null;
+        var choices = SetEndChoices(phase, availableNew);
+        if (choices.Count > 0)
+        {
+            SetChoice? choice = key switch
+            {
+                IslandKey.Enter => choices[0],
+                IslandKey.CtrlShiftR => SetChoice.Replay,
+                IslandKey.CtrlShiftN when choices.Contains(SetChoice.AllNew) => SetChoice.AllNew,
+                _ => null,
+            };
+            if (choice is { } c) return new IslandCommand.Send(new GameAction.StartSet(c));
+        }
         switch (key)
         {
             case IslandKey.Enter:
@@ -199,8 +222,6 @@ public static class IslandRules
                     GamePhase.PlayingSnippet or GamePhase.Guessing => new IslandCommand.SubmitGuess(),
                     GamePhase.Wrong => new IslandCommand.Send(new GameAction.Retry()),
                     GamePhase.Correct or GamePhase.Revealed or GamePhase.Error => new IslandCommand.Send(new GameAction.Next()),
-                    GamePhase.SetComplete => new IslandCommand.Send(new GameAction.NextSet()),
-                    GamePhase.SetFailed => new IslandCommand.Send(new GameAction.ReplaySet()),
                     _ => null, // Loading
                 };
             case IslandKey.CtrlR:
@@ -246,6 +267,8 @@ public static class IslandKeys
             VkR when ctrl && !alt && !shift => IslandKey.CtrlR,
             VkR when ctrl && !alt && shift => IslandKey.CtrlShiftR,
             VkS when ctrl && !alt && shift => IslandKey.CtrlShiftS,
+            // Distinct from Ctrl+N (quit): that one requires Shift up.
+            VkN when ctrl && !alt && shift => IslandKey.CtrlShiftN,
             // Ctrl+Alt+N (the global hotkey) never gets here as Ctrl+N.
             VkN when ctrl && !alt && !shift => IslandKey.CtrlN,
             _ => null,

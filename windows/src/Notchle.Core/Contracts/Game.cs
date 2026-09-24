@@ -9,8 +9,14 @@ namespace Notchle.Core;
 // - A guess needs title and every credited artist, any order. Typos are forgiven as long as
 //   the gist is right (FuzzyAnswerJudge; shared vectors in /spec/judge-cases.json).
 // - Correct: confetti, and the song keeps playing. Next moves on.
-// - 20/20: NextSet moves to 20 unplayed tracks from the same listing. Less: ReplaySet replays
-//   the same tracks reshuffled. No unplayed tracks left: Exhausted.
+// - Set end (Tren, 2026-09-24: "add 20 new songs, or keep the songs you didn't get correctly"):
+//   at every set end, complete or failed, the tracks answered correctly join ClearedTrackIds
+//   (persisted). Then StartSet(choice), in SetComplete and SetFailed:
+//   Replay: the same tracks reshuffled, results cleared (SetNumber unchanged).
+//   KeepMisses: the missed tracks plus new ones (not cleared, not in the finished set) up to
+//   SetSize, shuffled. At SetComplete (no misses) it equals AllNew.
+//   AllNew: SetSize new tracks; fewer left gives a smaller set; none left gives Exhausted.
+//   NextSet = StartSet(AllNew) and ReplaySet = StartSet(Replay) remain as aliases.
 // - Snippets start at GameConfig.SnippetStart (default 0).
 // - Restart (Tren, 2026-09-24): in PlayingSnippet / Guessing it replays the current snippet from
 //   its start at the same tier (no attempt used, nothing recorded). In Correct / Revealed it
@@ -52,13 +58,24 @@ public sealed record GameState
     public IReadOnlyList<TrackOutcome> Results { get; init; } = Array.Empty<TrackOutcome>();
     /// 1-based set counter within this listing.
     public int SetNumber { get; init; }
-    /// Ids of tracks in completed (20/20) sets; persisted so relaunches don't repeat them.
+    /// Ids of tracks answered correctly at a set end (any set, complete or failed); persisted so relaunches don't repeat them.
     public IReadOnlySet<string> ClearedTrackIds { get; init; } = new HashSet<string>();
     /// Incremented on every correct guess; the UI fires confetti when it changes.
     public int CelebrationCount { get; init; }
 
     public Track? CurrentTrack => Index >= 0 && Index < CurrentSet.Count ? CurrentSet[Index] : null;
     public int CorrectCount => Results.Count(r => r is TrackOutcome.Correct);
+}
+
+/// How the next set is built at a set end.
+public enum SetChoice
+{
+    /// The same tracks again, reshuffled.
+    Replay,
+    /// The tracks missed in this set, filled up with new ones.
+    KeepMisses,
+    /// Only new tracks (not cleared, not in the finished set).
+    AllNew,
 }
 
 public abstract record GameAction
@@ -75,7 +92,11 @@ public abstract record GameAction
     /// already does this).
     public sealed record Skip : GameAction;
     public sealed record Next : GameAction;
+    /// SetComplete / SetFailed only: start the next set as <paramref name="Choice"/> says.
+    public sealed record StartSet(SetChoice Choice) : GameAction;
+    /// Alias of StartSet(AllNew).
     public sealed record NextSet : GameAction;
+    /// Alias of StartSet(Replay).
     public sealed record ReplaySet : GameAction;
     /// Replay the current snippet from its start (PlayingSnippet/Guessing: doesn't use up an
     /// attempt), or restart the whole song from 0:00 (Correct/Revealed). Ignored elsewhere.

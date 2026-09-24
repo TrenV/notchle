@@ -114,9 +114,10 @@ public class EngineTests
     {
         var e = Engine(tracks: 25);
         var set = Ids(e).ToArray();
-        Assert.Equal([new Effect.Stop()], PlaySet(e, missing: 7));
+        Assert.Equal([new Effect.Stop(), new Effect.PersistProgress()], PlaySet(e, missing: 7));
         Assert.Equal(new Phase.SetFailed(19), e.State.Phase);
-        Assert.Empty(e.State.ClearedTrackIds);
+        // The 19 right answers are cleared even though the set failed; the miss is not.
+        Assert.True(e.State.ClearedTrackIds.SetEquals(set.Where((_, i) => i != 7)));
 
         var effects = e.Send(new ReplaySet());
         Assert.Equal(new Phase.PlayingSnippet(0), e.State.Phase);
@@ -647,17 +648,20 @@ public class EngineTests
         }
 
         AssertNoOps(Fresh(), new Loaded(Listing(3)), new SnippetFinished(), Right(null), new Retry(), new GiveUp(),
-            new Next(), new NextSet(), new ReplaySet(), new LoadFailed("x"), new PlaybackFailed("x"));
+            new Next(), new NextSet(), new ReplaySet(), new StartSet(SetChoice.AllNew), new StartSet(SetChoice.KeepMisses),
+            new StartSet(SetChoice.Replay), new LoadFailed("x"), new PlaybackFailed("x"));
 
-        AssertNoOps(Engine(), new Retry(), new Next(), new NextSet(), new ReplaySet(), new Loaded(Listing(3)),
+        AssertNoOps(Engine(), new Retry(), new Next(), new NextSet(), new ReplaySet(), new StartSet(SetChoice.Replay),
+            new StartSet(SetChoice.KeepMisses), new StartSet(SetChoice.AllNew), new Loaded(Listing(3)),
             new LoadFailed("x"));
 
         var correct = Engine();
         correct.Send(Right(correct.State.CurrentTrack));
-        AssertNoOps(correct, Right(correct.State.CurrentTrack), new Retry(), new GiveUp(), new NextSet(), new ReplaySet());
+        AssertNoOps(correct, Right(correct.State.CurrentTrack), new Retry(), new GiveUp(), new NextSet(), new ReplaySet(),
+            new StartSet(SetChoice.AllNew));
 
         var complete = Engine(tracks: 20);
         PlaySet(complete);
-        AssertNoOps(complete, new ReplaySet(), new Next(), new GiveUp(), new PlaybackFailed("x"));
+        AssertNoOps(complete, new Next(), new GiveUp(), new PlaybackFailed("x"));
     }
 }

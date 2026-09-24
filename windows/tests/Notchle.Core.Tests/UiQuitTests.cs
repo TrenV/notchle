@@ -145,7 +145,8 @@ public class UiQuitTests
         Assert.Equal(IslandKey.CtrlN, IslandKeys.FromVirtualKey(0x4E, true, false, false));
         Assert.Null(IslandKeys.FromVirtualKey(0x4E, true, true, false));   // Ctrl+Alt+N: the global hotkey
         Assert.Null(IslandKeys.FromVirtualKey(0x4E, false, false, false)); // typing "n"
-        Assert.Null(IslandKeys.FromVirtualKey(0x4E, true, false, true));   // Ctrl+Shift+N
+        // Ctrl+Shift+N is its own key (20 new songs at a set end), never Ctrl+N quit.
+        Assert.Equal(IslandKey.CtrlShiftN, IslandKeys.FromVirtualKey(0x4E, true, false, true));
         Assert.Equal(new IslandCommand.Quit(), IslandRules.Command(IslandKey.CtrlN, new GamePhase.SetFailed(3), null));
         Assert.Equal(new IslandCommand.Quit(), IslandRules.Command(IslandKey.CtrlN, new GamePhase.Error("x"), null, settingsOpen: true));
         Assert.Null(IslandRules.Command(IslandKey.CtrlN, new GamePhase.Exhausted(), null));

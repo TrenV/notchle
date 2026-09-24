@@ -72,16 +72,50 @@ public class UiScreensTests
             Assert.IsType<IslandScreen.Answer>(Build(new GamePhase.Revealed(new Verdict(false, true)))).Headline);
     }
 
+    private static IslandScreen.SetEnd SetEnd(bool complete, int newAvailable) =>
+        Assert.IsType<IslandScreen.SetEnd>(IslandScreens.Build(IslandDemoGame.SetEndState(complete, newAvailable), "", "", null, true));
+
     [Fact]
-    public void SetEndCopy()
+    public void SetCompleteOffersNewSongsThenReplay()
     {
-        var state = IslandDemoGame.SampleState(new GamePhase.SetComplete(20));
-        var done = Assert.IsType<IslandScreen.SetEnd>(IslandScreens.Build(state, "", "", null, true));
-        Assert.Equal(("Perfect set!", "The next 20 songs are unlocked.", "Next set"), (done.Headline, done.Body, done.ButtonLabel));
-        var failed = Assert.IsType<IslandScreen.SetEnd>(IslandScreens.Build(state with { Phase = new GamePhase.SetFailed(14) }, "", "", null, true));
-        Assert.Equal(("Set over", "Get all 20 right to unlock the next set.", "Replay set"), (failed.Headline, failed.Body, failed.ButtonLabel));
-        Assert.Equal((14, 20), (failed.Correct, failed.Total));
+        var done = SetEnd(complete: true, newAvailable: 40);
+        Assert.Equal(("Perfect set!", 20, 20), (done.Headline, done.Correct, done.Total));
+        Assert.Equal(new SetEndOption(SetChoice.AllNew, "20 new songs", KeyHints.Enter), done.Primary);
+        Assert.Equal(new SetEndOption(SetChoice.Replay, "Replay these 20", KeyHints.CtrlShiftR), done.Secondary);
+        Assert.Null(done.Tertiary);
     }
+
+    [Fact]
+    public void SetFailedOffersKeepMissesReplayAndNew()
+    {
+        var failed = SetEnd(complete: false, newAvailable: 40);
+        Assert.Equal(("Set over", 13, 20), (failed.Headline, failed.Correct, failed.Total));
+        Assert.Equal("7 missed. Keep practising them, or move on.", failed.Body);
+        Assert.Equal(new SetEndOption(SetChoice.KeepMisses, "Keep misses + new", KeyHints.Enter), failed.Primary);
+        Assert.Equal(new SetEndOption(SetChoice.Replay, "Replay these 20", KeyHints.CtrlShiftR), failed.Secondary);
+        Assert.Equal(new SetEndOption(SetChoice.AllNew, "20 new songs", KeyHints.CtrlShiftN), failed.Tertiary);
+    }
+
+    [Theory]
+    [InlineData(7, "7 new songs")]
+    [InlineData(1, "1 new song")]
+    public void NewSongsLabelShowsTheLiveCount(int available, string label) =>
+        Assert.Equal(label, SetEnd(complete: false, available).Tertiary?.Label);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NoNewSongsLeavesOnlyReplayWithTheHint(bool complete)
+    {
+        var end = SetEnd(complete, newAvailable: 0);
+        Assert.Equal([new SetEndOption(SetChoice.Replay, "Replay these 20", KeyHints.Enter)], end.Options.ToArray());
+        Assert.Equal("No new songs left in this playlist · paste another link", end.Body);
+    }
+
+    [Fact]
+    public void SetEndScreenIsStableAcrossBuilds() =>
+        // The view is only rebuilt when the screen changes; value equality keeps clicks landing.
+        Assert.Equal(SetEnd(complete: false, 40), SetEnd(complete: false, 40));
 
     [Fact]
     public void LoadingAndErrorCopy()

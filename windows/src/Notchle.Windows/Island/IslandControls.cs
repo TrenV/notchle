@@ -104,6 +104,12 @@ internal sealed class IslandButton : Border
     public Action Click { get; set; }
     public string Label { get => _label.Text; set { _label.Text = value; AutomationProperties.SetName(this, value); } }
     public string Hint => _hint.Text;
+    /// Draw the key hint next to the label (it still is the button's Hint either way).
+    public bool ShowsHint
+    {
+        get => _hint.Visibility == Visibility.Visible;
+        set => _hint.Visibility = value && _hint.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
     public bool Enabled { get => _enabled; set { _enabled = value; Restyle(); } }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)

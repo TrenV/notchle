@@ -273,4 +273,21 @@ public class UiSessionTests
         s2.StateDidChange(state, state with { Phase = new GamePhase.SetComplete(1) });
         Assert.Equal(_clock.Now, s2.SetEndedAt);
     }
+
+    [Theory]
+    [InlineData(false, 40, SetChoice.KeepMisses)]
+    [InlineData(true, 40, SetChoice.AllNew)]
+    [InlineData(false, 0, SetChoice.Replay)]
+    public void SetEndKeysUseTheLiveNewCount(bool complete, int newAvailable, SetChoice enter)
+    {
+        var s = new IslandSession(_clock) { Send = _sent.Add };
+        s.StateDidChange(null, IslandDemoGame.SetEndState(complete, newAvailable));
+        Assert.True(s.HandleKey(IslandKey.Enter));
+        Assert.True(s.HandleKey(IslandKey.CtrlShiftR));
+        Assert.Equal(newAvailable > 0, s.HandleKey(IslandKey.CtrlShiftN));
+        GameAction[] expected = newAvailable > 0
+            ? [new GameAction.StartSet(enter), new GameAction.StartSet(SetChoice.Replay), new GameAction.StartSet(SetChoice.AllNew)]
+            : [new GameAction.StartSet(enter), new GameAction.StartSet(SetChoice.Replay)];
+        Assert.Equal(expected, _sent);
+    }
 }
