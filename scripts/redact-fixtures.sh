@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Spotify embed pages carry an anonymous web-player accessToken. Run this after saving a new
-# fixture; FixtureHygieneTests fails if a token slips through.
+# Run after saving a new Spotify embed page as a fixture: cuts it down to the data the
+# parsers read (dropping Spotify's page code, images and the anonymous web-player token).
+# FixtureHygieneTests fails if a fixture still carries any of that.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-for f in Tests/NotchleCoreTests/Fixtures/*.html; do
-  perl -pi -e 's/"accessToken":"[^"]*"/"accessToken":"REDACTED"/g' "$f"
-done
-echo "redacted $(ls Tests/NotchleCoreTests/Fixtures/*.html | wc -l | tr -d ' ') fixtures"
+python3 scripts/shrink-fixtures.py Tests/NotchleCoreTests/Fixtures/*.html

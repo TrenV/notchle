@@ -29,7 +29,7 @@ unlock the next 20.
 ### Build and install
 
 ```bash
-gh repo clone TrenV/notchle        # private repo: needs access, or use git clone
+git clone https://github.com/TrenV/notchle.git
 cd notchle
 scripts/bundle.sh                  # builds build/Notchle.app (about a minute the first time)
 cp -R build/Notchle.app /Applications/
@@ -74,7 +74,7 @@ rm -rf /Applications/Notchle.app ~/Library/Application\ Support/Notchle
 
 ### Get the app
 
-Either download it from CI (needs `gh` and access to the repo):
+Either download it from CI (needs the GitHub CLI, `gh`, signed in):
 
 ```bash
 gh run download -R TrenV/notchle -n Notchle-win-x64
@@ -151,4 +151,10 @@ swift run Notchle --ui-demo --ui-start guessing   # macOS UI demo with fake song
 - CI (`.github/workflows/windows.yml`) builds and tests both versions on every push and
   uploads Windows screenshots of every island screen.
 - Saved Spotify pages in `Tests/NotchleCoreTests/Fixtures` must be run through
-  `scripts/redact-fixtures.sh`; a test fails if a Spotify access token slips through.
+  `scripts/redact-fixtures.sh`, which shrinks them to the track data the parsers read; a test
+  fails if a page still carries Spotify's page code, config or access token.
+
+## License
+
+[MIT](LICENSE). Notchle is not affiliated with or endorsed by Spotify. It reads Spotify's
+public embed pages for track lists and plays music through your own Spotify app or account.
