@@ -42,7 +42,7 @@ public final class SpotifyAppPlayer: Player {
     private let timing: Timing
     /// Bumped by every public operation. A snippet only pauses Spotify if no newer operation has
     /// started since, so a cancelled snippet's late cleanup can't pause the next snippet or the
-    /// song that `continuePlaying` just resumed.
+    /// song that `continuePlaying` resumed or `restartTrack` restarted.
     private var generation = 0
 
     public nonisolated convenience init() {
@@ -84,6 +84,20 @@ public final class SpotifyAppPlayer: Player {
         // Deliberately no relaunch: if Spotify quit there is nothing to continue.
         guard app.isRunning else { throw PlayerError.failed("Spotify isn't running") }
         _ = try await runScript(SpotifyScripts.resume, relaunchIfNeeded: false)
+    }
+
+    /// `play track` from 0:00, confirmed like a snippet's start, then left playing. Bumping the
+    /// generation means a snippet this interrupts can't pause the restarted song.
+    public func restartTrack(_ track: Track) async throws {
+        generation += 1
+        try Task.checkCancellation()
+        try await ensureRunning()
+        try Task.checkCancellation()
+        _ = try await runScript(SpotifyScripts.play(uri: track.uri))
+        app.hide()
+        _ = try await runScript(SpotifyScripts.setPosition(0))
+        try await waitUntilPlaying(track, from: 0)
+        app.hide()
     }
 
     public func stop() async {

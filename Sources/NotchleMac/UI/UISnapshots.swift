@@ -28,6 +28,8 @@ public enum UISnapshots {
         var state: GameState?
         /// How long the phase has been on (drives the collapsed pill's brief flashes).
         var secondsInPhase: Double = 0.3
+        /// "Quit playlist?" armed in the header.
+        var quitArmed = false
     }
 
     static var scenarios: [Scenario] {
@@ -74,6 +76,11 @@ public enum UISnapshots {
             Scenario(name: "34-collapsed-error", phase: .error(message: "x"), expanded: false),
             Scenario(name: "35-pill-collapsed-guessing", phase: .guessing(tierIndex: 0), expanded: false, hasNotch: false),
             Scenario(name: "21-pill-guessing", phase: .guessing(tierIndex: 1), hasNotch: false, title: "Glass"),
+            // Last tier: no Skip (it would be a Give up).
+            Scenario(name: "36-guessing-t2", phase: .guessing(tierIndex: 2), title: "Paper Lanterns", artist: "Midnight"),
+            Scenario(name: "37-quit-armed", phase: .guessing(tierIndex: 0), title: "Paper", quitArmed: true),
+            Scenario(name: "38-quit-armed-correct", phase: .correct(tierIndex: 0), quitArmed: true),
+            Scenario(name: "39-quit-armed-pill", phase: .playingSnippet(tierIndex: 1), hasNotch: false, quitArmed: true),
         ]
     }
 
@@ -129,6 +136,7 @@ public enum UISnapshots {
         ui.reduceMotionOverride = sc.reduceMotion
         ui.snippetStart = Date().addingTimeInterval(-sc.snippetElapsed)
         ui.phaseStartedAt = Date().addingTimeInterval(-sc.secondsInPhase)
+        if sc.quitArmed { ui.quitArmedAt = Date() }
 
         let notchSize = NotchGeometry.fallbackNotchSize
         let geometry = NotchGeometry(

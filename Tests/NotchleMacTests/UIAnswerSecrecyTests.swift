@@ -37,6 +37,8 @@ import NotchleCore
         let s = Self.state(.guessing(tierIndex: 0))
         let texts = [NotchUIRules.artistPlaceholder(artistCount: NotchUIRules.artistCount(s)),
                      NotchUIRules.progressText(s),
+                     NotchUIRules.restartLabel(s.phase) ?? "",
+                     NotchUIRules.secondsLabel(NotchUIRules.skipSeconds(s.phase, s.config) ?? 0),
                      NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false),
                                              artistCount: NotchUIRules.artistCount(s)) ?? ""]
         for t in texts {
@@ -45,13 +47,15 @@ import NotchleCore
             #expect(!t.contains("Mabel"))
         }
         #expect(texts[0] == "2 artists, any order")
+        #expect(texts[2] == "Replay snippet")
     }
 
     // MARK: Rendered proof: draw the real views, OCR the pixels.
 
     @MainActor
-    static func renderedText(_ phase: GamePhase, expanded: Bool = true) throws -> String {
-        let scenario = UISnapshots.Scenario(name: "test", phase: phase, expanded: expanded, state: state(phase))
+    static func renderedText(_ phase: GamePhase, expanded: Bool = true, quitArmed: Bool = false) throws -> String {
+        let scenario = UISnapshots.Scenario(name: "test", phase: phase, expanded: expanded, state: state(phase),
+                                            quitArmed: quitArmed)
         let data = try #require(UISnapshots.render(scenario))
         let image = try #require(NSBitmapImageRep(data: data)?.cgImage)
         let request = VNRecognizeTextRequest()
@@ -73,6 +77,18 @@ import NotchleCore
             #expect(!text.localizedCaseInsensitiveContains("Quill"), "OCR read: \(text)")
             #expect(!text.localizedCaseInsensitiveContains("Mabel"), "OCR read: \(text)")
         }
+    }
+
+    /// The armed "Quit playlist?" header is on screen (control) and the answer is not.
+    @MainActor
+    @Test(arguments: [GamePhase.playingSnippet(tierIndex: 0), .guessing(tierIndex: 1),
+                      .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))])
+    func armedQuitDoesNotLeak(_ phase: GamePhase) throws {
+        let text = try Self.renderedText(phase, quitArmed: true)
+        #expect(text.contains("Quit playlist"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Zanzibar"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Quill"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Mabel"), "OCR read: \(text)")
     }
 
     /// Positive control: the same pipeline does see the answer where it is allowed.

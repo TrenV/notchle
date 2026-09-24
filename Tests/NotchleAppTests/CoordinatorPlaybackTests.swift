@@ -24,6 +24,7 @@ final class RecordingPlayer: Player {
     }
 
     func continuePlaying() async throws { log.append("continue") }
+    func restartTrack(_ track: Track) async throws { log.append("restart:\(track.id)") }
     func stop() async { log.append("stop") }
 }
 
@@ -44,4 +45,107 @@ struct NoSource: TrackSource {
     await coordinator.drainPlayback()
 
     #expect(player.log == ["snippet:t1", "paused:t1", "continue"])
+}
+
+@MainActor
+@Test func restartTrackWaitsForCancelledSnippetAndNothingPausesAfterIt() async throws {
+    let player = RecordingPlayer()
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let coordinator = AppCoordinator(source: NoSource(), store: ProgressStore(directory: dir), makePlayer: { _ in player })
+    let track = Track(id: "t1", uri: "spotify:track:t1", title: "x", artists: ["y"], durationMs: 1, previewURL: nil)
+
+    coordinator.runForTesting(.playSnippet(track, start: 0, seconds: 30))
+    try await Task.sleep(for: .milliseconds(20))
+    coordinator.runForTesting(.restartTrack(track))
+    await coordinator.drainPlayback()
+    // The queue awaits the cancelled snippet's own pause before restarting, so the pause lands
+    // first and the restarted song is the last thing the player hears about.
+    #expect(player.log == ["snippet:t1", "paused:t1", "restart:t1"])
+
+    try await Task.sleep(for: .milliseconds(150))
+    #expect(player.log == ["snippet:t1", "paused:t1", "restart:t1"], "something ran after the restart")
+}
+
+struct OneTrackSource: TrackSource {
+    static let track = Track(id: "t1", uri: "spotify:track:t1", title: "x", artists: ["y"], durationMs: 1, previewURL: nil)
+    func listing(for ref: SourceRef) async throws -> SourceListing {
+        SourceListing(ref: ref, name: "one", tracks: [Self.track])
+    }
+}
+
+/// End to end through the engine: restart mid-snippet replays the same tier, and the snippet it
+/// cancelled reports nothing (no premature `guessing`).
+@MainActor
+@Test func restartMidSnippetReplaysTheTierThroughTheEngine() async throws {
+    let player = RecordingPlayer()
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let coordinator = AppCoordinator(source: OneTrackSource(), store: ProgressStore(directory: dir), makePlayer: { _ in player })
+
+    coordinator.send(.load(SourceRef(kind: .playlist, id: "p")))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while !player.log.contains("snippet:t1"), ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 0))
+
+    coordinator.send(.restart)
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 0))
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(player.log == ["stop", "snippet:t1", "paused:t1", "snippet:t1"])
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 0))
+    #expect(coordinator.model.state.results.isEmpty)
+    coordinator.send(.reset)
+    await coordinator.drainPlayback()
+}
+
+/// A snippet that finishes although it was cancelled (the cancel came as it ended): only the
+/// coordinator's cancellation check can keep its `snippetFinished` from counting.
+@MainActor
+final class LateFinishingPlayer: Player {
+    nonisolated let displayName = "fake"
+    nonisolated let playsFullTrack = true
+    var log: [String] = []
+    let snippetLength: Duration
+
+    init(snippetLength: Duration) { self.snippetLength = snippetLength }
+
+    func playSnippet(of track: Track, from start: Double, seconds: Double) async throws {
+        log.append("snippet:\(seconds)")
+        let end = ContinuousClock.now.advanced(by: snippetLength)
+        while ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(5)) }
+        log.append("returned:\(seconds)")
+    }
+
+    func continuePlaying() async throws { log.append("continue") }
+    func restartTrack(_ track: Track) async throws { log.append("restart:\(track.id)") }
+    func stop() async { log.append("stop") }
+}
+
+@MainActor
+@Test func skippedSnippetFinishingLateDoesNotEndTheLongerOne() async throws {
+    let player = LateFinishingPlayer(snippetLength: .milliseconds(400))
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let coordinator = AppCoordinator(source: OneTrackSource(), store: ProgressStore(directory: dir), makePlayer: { _ in player })
+    func waitFor(_ entry: String) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !player.log.contains(entry), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(2)) }
+        #expect(player.log.contains(entry), "log: \(player.log)")
+    }
+
+    coordinator.send(.load(SourceRef(kind: .playlist, id: "p")))
+    try await waitFor("snippet:5.0")
+    coordinator.send(.skip)
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 1))
+
+    // The 5s snippet returns normally after the skip cancelled it; the 10s one then starts.
+    try await waitFor("snippet:10.0")
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(coordinator.model.state.phase == .playingSnippet(tierIndex: 1), "the skipped snippet ended the new one")
+
+    try await waitFor("returned:10.0")
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(coordinator.model.state.phase == .guessing(tierIndex: 1))
+    #expect(coordinator.model.state.results.isEmpty)
+    coordinator.send(.reset)
+    await coordinator.drainPlayback()
 }

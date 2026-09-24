@@ -14,6 +14,14 @@ import Foundation
 //   Anything less: `replaySet` replays the same 20, reshuffled.
 //   When the listing has no unplayed tracks left: `exhausted`, paste a new URL.
 // - Snippets start at the start of the song (`GameConfig.snippetStart`).
+// - Restart (Tren, 2026-09-24: "a restart button so i can restart the song"): while guessing
+//   (`playingSnippet`/`guessing`) it replays the current tier's snippet from its start and
+//   costs no attempt; after `correct`/`revealed` it plays the whole song again from 0:00.
+//   Not in `wrong`: Retry is the way on there, and a free replay would allow unlimited
+//   guesses at the same tier.
+// - Skip (Tren, 2026-09-24: "forfeit 1 chance to get the longer version, over completely
+//   forfeiting by giving up"): while guessing, give up this attempt without guessing and hear
+//   the next, longer tier. At the last tier it is `giveUp`. Not in `wrong` (Retry is that).
 
 public enum GamePhase: Sendable, Hashable {
     /// Nothing loaded. UI asks for a Spotify URL.
@@ -85,6 +93,13 @@ public enum GameAction: Sendable, Hashable {
     case retry
     /// From `.playingSnippet`, `.guessing` or `.wrong`: reveal, counts as missed.
     case giveUp
+    /// From playingSnippet/guessing: give up this attempt without guessing and play the next,
+    /// longer tier. At the last tier it behaves like giveUp. Ignored elsewhere (in wrong, Retry
+    /// already does this).
+    case skip
+    /// Replay the current snippet from its start (playingSnippet/guessing: doesn't use up an
+    /// attempt), or restart the whole song from 0:00 (correct/revealed). Ignored elsewhere.
+    case restart
     /// From `.correct`, `.revealed` or `.error`: move to the next track (or end the set).
     case next
     /// From `.setComplete`.
@@ -104,6 +119,8 @@ public enum GameEffect: Sendable, Hashable {
     case playSnippet(Track, start: Double, seconds: Double)
     /// Cancel a running snippet (if any) and let the current song play on from where it is.
     case continuePlaying
+    /// Cancel any running snippet and play `track` from the very start, continuing to the end.
+    case restartTrack(Track)
     /// Stop playback entirely.
     case stop
     /// `clearedTrackIDs` changed; persist it.

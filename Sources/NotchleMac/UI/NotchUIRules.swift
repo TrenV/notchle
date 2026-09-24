@@ -9,6 +9,12 @@ public enum UIField: Hashable, Sendable {
 /// Keys the notch handles itself (everything else goes to the focused control).
 public enum UIKeyInput: Hashable, Sendable {
     case returnKey, escape, tab, backTab, commandR
+    /// ⌘⇧R: restart (replay the snippet, or the whole song once it is answered).
+    case commandShiftR
+    /// ⌘⇧S: skip to the next, longer tier.
+    case commandShiftS
+    /// ⌘N: quit the playlist (arms the confirmation, or confirms it).
+    case commandN
 }
 
 /// What a key means in the current phase.
@@ -21,6 +27,9 @@ public enum UICommand: Hashable, Sendable {
     case collapse
     case closeSettings
     case focus(UIField)
+    /// Quit the playlist: arms the "Quit playlist?" confirmation, or confirms an armed one.
+    case quit
+    case disarmQuit
 }
 
 /// What the guess fields do when the phase changes.
@@ -60,6 +69,51 @@ public enum NotchUIRules {
         }
     }
 
+    /// The restart button's label, or nil where it is hidden. Never mentions the track.
+    /// Hidden in `wrong`: Retry is the way on there (a free replay would be a free guess).
+    public static func restartLabel(_ phase: GamePhase) -> String? {
+        switch phase {
+        case .playingSnippet, .guessing: "Replay snippet"
+        case .correct, .revealed: "Restart song"
+        default: nil
+        }
+    }
+
+    public static func canRestart(_ phase: GamePhase) -> Bool { restartLabel(phase) != nil }
+
+    /// Seconds of the tier a Skip leads to, or nil where Skip is hidden: outside
+    /// playingSnippet/guessing, and at the last tier (there Skip would be a plain Give up).
+    public static func skipSeconds(_ phase: GamePhase, _ config: GameConfig) -> Double? {
+        switch phase {
+        case .playingSnippet(let tier), .guessing(let tier):
+            // Same fallback as the engine when no tiers are configured.
+            let tiers = config.tiers.isEmpty ? GameConfig().tiers : config.tiers
+            return tier + 1 < tiers.count ? tiers[tier + 1] : nil
+        default:
+            return nil
+        }
+    }
+
+    // MARK: Quit (Tren, 2026-09-24: "also missing a complete quit button to put a diff playlist in")
+
+    /// Phases with a listing loaded (or loading), where the header offers Quit. Not idle/exhausted:
+    /// those already ask for a link.
+    public static func showsQuit(_ phase: GamePhase) -> Bool {
+        switch phase {
+        case .idle, .exhausted: false
+        case .loading, .playingSnippet, .guessing, .wrong, .correct, .revealed, .setComplete, .setFailed, .error: true
+        }
+    }
+
+    /// How long the armed "Quit playlist?" waits for the confirming click or ⌘N.
+    public static let quitConfirmWindow: TimeInterval = 3
+
+    public static func isQuitArmed(armedAt: Date?, now: Date) -> Bool {
+        guard let armedAt else { return false }
+        let elapsed = now.timeIntervalSince(armedAt)
+        return elapsed >= 0 && elapsed < quitConfirmWindow
+    }
+
     /// Phases that show the Spotify URL field.
     public static func showsURLField(_ phase: GamePhase) -> Bool {
         switch phase {
@@ -86,7 +140,8 @@ public enum NotchUIRules {
     }
 
     /// Collapse now? Only when expanded, the mouse has been outside for the grace period and the
-    /// player is not typing. `mouseLeftAt` is nil while the mouse is inside.
+    /// player is not typing (the caller also passes true while "Quit playlist?" is armed).
+    /// `mouseLeftAt` is nil while the mouse is inside.
     public static func shouldAutoCollapse(expanded: Bool, mouseLeftAt: Date?, typing: Bool, now: Date) -> Bool {
         guard expanded, let mouseLeftAt, !typing else { return false }
         return now.timeIntervalSince(mouseLeftAt) >= collapseGrace
@@ -99,7 +154,8 @@ public enum NotchUIRules {
 
     /// What a key press on the key-but-collapsed panel does.
     public enum CollapsedKeyBehavior: Hashable, Sendable {
-        /// Run the phase's command without opening (Return = Next, ⌘R = Retry).
+        /// Run the phase's command without opening (Return = Next, ⌘R = Retry, ⌘⇧R = Restart,
+        /// ⌘⇧S = Skip).
         case perform
         /// Open the panel; nothing else (never submit a guess blind).
         case expand
@@ -115,7 +171,9 @@ public enum NotchUIRules {
         case nil: return fields ? .expandAndReplay : .ignore
         case .returnKey?: return fields ? .expand : .perform
         case .tab?, .backTab?: return fields ? .expand : .ignore
-        case .commandR?: return .perform
+        case .commandR?, .commandShiftR?, .commandShiftS?: return .perform
+        // Arming opens the panel itself, so the confirmation is visible.
+        case .commandN?: return showsQuit(phase) ? .perform : .ignore
         case .escape?: return .ignore       // never give up on a panel you cannot see
         }
     }
@@ -236,6 +294,15 @@ public enum NotchUIRules {
         case .playingSnippet(let tier), .guessing(let tier):
             // Snippet → guessing of the same tier: the player may be mid-typing; leave them be.
             if case .playingSnippet(let t) = old, t == tier, case .guessing = new { return .none }
+            // Guessing → snippet of the same tier is a replay (restart): same track, same guess.
+            if case .guessing(let t) = old, t == tier, case .playingSnippet = new { return .none }
+            // Snippet/guessing → snippet of the next tier is a skip: same track, same guess.
+            if case .playingSnippet = new {
+                switch old {
+                case .playingSnippet(let t)?, .guessing(let t)?: if t + 1 == tier { return .none }
+                default: break
+                }
+            }
             if case .wrong(_, let verdict) = old, tier > 0 {
                 return .keepAndFocus(verdict.titleCorrect ? .artist : .title)
             }
@@ -245,9 +312,13 @@ public enum NotchUIRules {
         }
     }
 
-    /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content.
+    /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content. `config`
+    /// decides whether a longer tier is left to skip to. `quitArmed`: "Quit playlist?" is showing,
+    /// so Esc cancels it (and nothing else).
     public static func command(for key: UIKeyInput, phase: GamePhase, focused: UIField?,
-                               settingsOpen: Bool = false) -> UICommand? {
+                               settingsOpen: Bool = false, config: GameConfig = GameConfig(),
+                               quitArmed: Bool = false) -> UICommand? {
+        if quitArmed, key == .escape { return .disarmQuit }
         if settingsOpen {
             return key == .escape ? .closeSettings : nil
         }
@@ -265,6 +336,12 @@ public enum NotchUIRules {
         case .commandR:
             if case .wrong = phase { return .send(.retry) }
             return nil
+        case .commandShiftR:
+            return canRestart(phase) ? .send(.restart) : nil
+        case .commandShiftS:
+            return skipSeconds(phase, config) != nil ? .send(.skip) : nil
+        case .commandN:
+            return showsQuit(phase) ? .quit : nil
         case .escape:
             return isGuessPhase(phase) ? .send(.giveUp) : .collapse
         case .tab, .backTab:

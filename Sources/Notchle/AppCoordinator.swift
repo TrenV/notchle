@@ -107,6 +107,17 @@ final class AppCoordinator {
                 try? await player.continuePlaying()
             }
 
+        case .restartTrack(let track):
+            // Like continuePlaying: the answer is already on screen, so a failure here is not
+            // worth an error screen (the song just doesn't restart).
+            enqueuePlayback { player in
+                do {
+                    try await player.restartTrack(track)
+                } catch {
+                    NSLog("Notchle: restarting the song failed: \(error)")
+                }
+            }
+
         case .stop:
             enqueuePlayback { player in
                 await player.stop()

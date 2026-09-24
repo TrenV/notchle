@@ -26,7 +26,7 @@ public final class PreviewPlayer: Player {
     private let timing: Timing
     private var player: AVPlayer?
     /// Bumped by every public operation, so a cancelled snippet's late cleanup can't pause a
-    /// newer snippet or the song `continuePlaying` just resumed.
+    /// newer snippet or the song `continuePlaying` or `restartTrack` just started.
     private var generation = 0
 
     /// - Parameter volume: 0...1, applied to the AVPlayer. Tests pass 0 to run silently.
@@ -78,6 +78,25 @@ public final class PreviewPlayer: Player {
         player.play()
     }
 
+    /// The clip from 0:00, left playing to its end. Loads the clip only if it isn't the one
+    /// already loaded. Bumping the generation means a snippet this interrupts can't pause it.
+    public func restartTrack(_ track: Track) async throws {
+        guard let url = track.previewURL else { throw PlayerError.noPreview }
+        generation += 1
+        let player = avPlayer()
+        try Task.checkCancellation()
+        if loadedURL == url {
+            let reached = await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            try Task.checkCancellation()
+            guard reached else { throw PlayerError.failed("Couldn't seek the preview clip") }
+        } else {
+            // A fresh item starts at 0:00.
+            player.pause()
+            player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        }
+        player.play()
+    }
+
     public func stop() async {
         generation += 1
         player?.pause()
@@ -92,6 +111,9 @@ public final class PreviewPlayer: Player {
         let seconds = player.currentTime().seconds
         return seconds.isFinite ? seconds : nil
     }
+
+    /// URL of the clip currently loaded, if any.
+    var loadedURL: URL? { (player?.currentItem?.asset as? AVURLAsset)?.url }
 
     var isPlaying: Bool { player?.timeControlStatus == .playing }
     var isPaused: Bool { player.map { $0.timeControlStatus == .paused && $0.rate == 0 } ?? true }

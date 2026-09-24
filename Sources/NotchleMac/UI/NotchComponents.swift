@@ -97,6 +97,61 @@ struct NotchTextField: View {
     }
 }
 
+/// Small secondary ↺ button: replays the snippet or restarts the song (⌘⇧R). Hidden where
+/// `NotchUIRules.restartLabel` is nil. Its label is a fixed string, never the track.
+struct RestartButton: View {
+    let ui: NotchUIState
+
+    var body: some View {
+        if let label = NotchUIRules.restartLabel(ui.phase) {
+            Button { ui.restart() } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(NotchPalette.secondaryText)
+                    .frame(width: 20, height: 18)
+                    .background(Capsule().fill(Color.white.opacity(0.09)))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("\(label) (⌘⇧R)")
+            .accessibilityLabel(label)
+        }
+    }
+}
+
+/// Header button that quits the playlist, in two steps: ✕, then a red "Quit playlist?"
+/// capsule for `NotchUIRules.quitConfirmWindow` seconds; clicking that (or ⌘N) quits.
+struct QuitButton: View {
+    let ui: NotchUIState
+
+    var body: some View {
+        let armed = ui.isQuitArmed()
+        Button { ui.quitPressed() } label: {
+            Group {
+                if armed {
+                    Text("Quit playlist?")
+                        .font(.system(size: 11, weight: .bold))
+                        .fixedSize()                    // the listing name truncates instead
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 9)
+                        .frame(height: 20)
+                        .background(Capsule().fill(NotchPalette.red))
+                } else {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NotchPalette.secondaryText)
+                        .frame(width: 20, height: 20)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(armed ? "Click again to quit (esc cancels)" : "Quit playlist (⌘N)")
+        .accessibilityLabel(armed ? "Confirm quit playlist" : "Quit playlist")
+        .animation(.easeOut(duration: 0.15), value: armed)
+    }
+}
+
 /// Three pills, one per tier ("5s 10s 15s"): used tiers red, current white, later dim.
 struct AttemptDots: View {
     let tiers: [Double]

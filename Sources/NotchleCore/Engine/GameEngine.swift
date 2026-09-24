@@ -60,6 +60,20 @@ public struct GameEngine: Sendable {
         case (.giveUp, .playingSnippet), (.giveUp, .guessing), (.giveUp, .wrong):
             return reveal(lastVerdict)
 
+        // Forfeit this attempt for the next tier; no result until the track ends. The last
+        // tier has nothing longer to offer, so there it is exactly `giveUp`.
+        case let (.skip, .playingSnippet(tier)), let (.skip, .guessing(tier)):
+            guard tier + 1 < tiers.count else { return reveal(lastVerdict) }
+            return playSnippet(tier: tier + 1)
+
+        // Replay the same tier: no attempt used, no result, the typed guess is the UI's business.
+        case let (.restart, .playingSnippet(tier)), let (.restart, .guessing(tier)):
+            return playSnippet(tier: tier)
+
+        case (.restart, .correct), (.restart, .revealed):
+            guard let track = state.currentTrack else { return [] }
+            return [.restartTrack(track)]
+
         case (.next, .correct), (.next, .revealed), (.next, .error):
             return advance()
 

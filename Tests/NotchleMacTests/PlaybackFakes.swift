@@ -72,6 +72,11 @@ final class FakeSpotify: Sendable {
         }
     }
 
+    /// A seek: `advancingPosition` counts from now again.
+    func restartClock() {
+        state.withLock { $0.clockStart = .now }
+    }
+
     var log: [Entry] { state.withLock { $0.log } }
     var calls: [Call] { log.map(\.call) }
     var running: Bool {

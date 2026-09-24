@@ -239,6 +239,65 @@ import Testing
         #expect(!afterConfirm.contains(.pause), "calls: \(spotify.calls)")
     }
 
+    @Test func restartTrackPlaysFromZeroConfirmsHidesAndNeverPauses() async throws {
+        let spotify = Self.spotify(playingFrom: 1, position: 0.1)
+        try await makePlayer(spotify).restartTrack(track)
+        #expect(spotify.calls == [.play, .hide, .position, .status, .status, .hide], "calls: \(spotify.calls)")
+        #expect(spotify.log[0].script == SpotifyScripts.play(uri: track.uri))
+        #expect(spotify.log[2].script == SpotifyScripts.setPosition(0))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!spotify.calls.contains(.pause), "calls: \(spotify.calls)")
+    }
+
+    @Test func restartTrackLaunchesSpotifyIfNeeded() async throws {
+        let spotify = FakeSpotify(running: false) { call, nth, _ in
+            switch (call, nth) {
+            case (.status, 0): S.status("stopped", "")
+            case (.status, _): S.status("playing")
+            default: .success("")
+            }
+        }
+        try await makePlayer(spotify).restartTrack(track)
+        #expect(spotify.calls == [.launch, .status, .play, .hide, .position, .status, .hide])
+    }
+
+    @Test func restartTrackFailsWhenSpotifyPlaysSomethingElse() async {
+        let spotify = FakeSpotify { call, _, _ in
+            call == .status ? S.status("playing", "spotify:track:somethingElse") : .success("")
+        }
+        await #expect(throws: PlayerError.failed("Spotify played a different track")) {
+            try await makePlayer(spotify, timing: .fastTimeouts).restartTrack(track)
+        }
+    }
+
+    @Test func cancelledSnippetDoesNotPauseTheRestartedSong() async throws {
+        // Honours the restart's seek to 0, however far the snippet got (CI can be slow).
+        let spotify = FakeSpotify { call, _, world in
+            switch call {
+            case .position:
+                world.restartClock()
+                return .success("")
+            case .status: return S.status("playing", S.track.uri, world.advancingPosition(from: 0.1))
+            default: return .success("")
+            }
+        }
+        let player = makePlayer(spotify)
+        let snippet = Task { try await player.playSnippet(of: track, from: 0, seconds: 10) }
+        #expect(await S.waitUntil { spotify.calls.filter { $0 == .hide }.count == 2 })
+
+        // Restart mid-snippet without waiting for the snippet to wind down: the snippet's
+        // cleanup runs while (or after) the restart plays, and must not pause it.
+        snippet.cancel()
+        try await player.restartTrack(track)
+        let result = await snippet.result
+        #expect(throws: CancellationError.self) { try result.get() }
+        try await Task.sleep(for: .milliseconds(100))
+
+        let fromRestart = Array(spotify.calls.drop { $0 != .play }.dropFirst().drop { $0 != .play })
+        #expect(fromRestart.first == .play, "calls: \(spotify.calls)")
+        #expect(!fromRestart.contains(.pause), "calls: \(spotify.calls)")
+    }
+
     @Test func stopPausesOnlyWhenRunning() async {
         let running = FakeSpotify { _, _, _ in .success("") }
         await makePlayer(running).stop()

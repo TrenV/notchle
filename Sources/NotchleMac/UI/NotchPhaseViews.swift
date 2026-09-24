@@ -126,6 +126,7 @@ struct GuessView: View {
                     Text("What's this song?")
                 }
                 Spacer()
+                RestartButton(ui: ui)
                 AttemptDots(tiers: config.tiers, current: tier)
             }
             .font(.system(size: 12.5, weight: .semibold))
@@ -143,6 +144,14 @@ struct GuessView: View {
             HStack {
                 Button { ui.model.send(.giveUp) } label: { KeyHintLabel(title: "Give up", hint: "esc") }
                     .buttonStyle(NotchButtonStyle(kind: .quiet))
+                if let skip = NotchUIRules.skipSeconds(ui.phase, config) {
+                    Button { ui.skip() } label: {
+                        KeyHintLabel(title: "Skip · \(NotchUIRules.secondsLabel(skip))", hint: "⌘⇧S")
+                    }
+                    .buttonStyle(NotchButtonStyle(kind: .secondary))
+                    .help("Use up this try and hear \(NotchUIRules.secondsLabel(skip))")
+                    .padding(.leading, 10)
+                }
                 Spacer()
                 Button { ui.submitGuess() } label: { KeyHintLabel(title: "Submit", hint: "⏎") }
                     .buttonStyle(NotchButtonStyle(kind: .primary))
@@ -219,6 +228,7 @@ struct AnswerView: View {
                         .foregroundStyle(NotchPalette.secondaryText)
                 }
                 Spacer()
+                RestartButton(ui: ui)
                 EqualizerGlyph(playing: true, color: NotchPalette.secondaryText)
             }
             .font(.system(size: 12, weight: .semibold))

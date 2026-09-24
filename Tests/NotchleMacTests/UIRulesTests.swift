@@ -62,6 +62,11 @@ import NotchleCore
         #expect(k(.escape, guessing) == .ignore)                // never give up blind
         #expect(k(.commandR, .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))) == .perform)
         #expect(k(.tab, .playingSnippet(tierIndex: 0)) == .expand)
+        #expect(k(.commandShiftR, guessing) == .perform)          // replay without opening
+        #expect(k(.commandShiftR, .correct(tierIndex: 0)) == .perform)
+        #expect(k(.commandShiftS, guessing) == .perform)          // skip without opening
+        #expect(k(.commandN, guessing) == .perform)               // arming opens the panel itself
+        #expect(k(.commandN, .idle) == .ignore)
     }
 
     @Test func collapsedIndicatorPerPhase() {
@@ -133,6 +138,98 @@ import NotchleCore
         }
     }
 
+    @Test func commandShiftRRestartsWhereTheButtonShows() {
+        func r(_ p: GamePhase) -> UICommand? { NotchUIRules.command(for: .commandShiftR, phase: p, focused: .title) }
+        #expect(r(.playingSnippet(tierIndex: 0)) == .send(.restart))
+        #expect(r(.guessing(tierIndex: 2)) == .send(.restart))
+        #expect(r(.correct(tierIndex: 1)) == .send(.restart))
+        #expect(r(.revealed(verdict: nil)) == .send(.restart))
+        for p in [GamePhase.idle, .loading, .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)),
+                  .setComplete(correctCount: 20), .setFailed(correctCount: 3), .exhausted, .error(message: "e")] {
+            #expect(r(p) == nil, "\(p)")
+        }
+        // Settings cover the phase: only Esc does anything.
+        #expect(NotchUIRules.command(for: .commandShiftR, phase: .guessing(tierIndex: 0), focused: nil,
+                                     settingsOpen: true) == nil)
+        // ⌘R stays Retry, and only Retry.
+        #expect(NotchUIRules.command(for: .commandR, phase: .guessing(tierIndex: 0), focused: nil) == nil)
+        for p in Self.allPhases {
+            #expect(NotchUIRules.canRestart(p) == (r(p) != nil), "\(p)")
+        }
+    }
+
+    @Test func skipSecondsIsTheNextTierAndNilAtTheLast() {
+        let c = GameConfig()
+        #expect(NotchUIRules.skipSeconds(.playingSnippet(tierIndex: 0), c) == 10)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 1), c) == 15)
+        #expect(NotchUIRules.skipSeconds(.playingSnippet(tierIndex: 2), c) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 2), c) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 0), GameConfig(tiers: [2, 4])) == 4)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 1), GameConfig(tiers: [2, 4])) == nil)
+        #expect(NotchUIRules.skipSeconds(.guessing(tierIndex: 0), GameConfig(tiers: [])) == 10)  // engine fallback
+        for p in Self.allPhases where !NotchUIRules.showsGuessFields(p) {
+            #expect(NotchUIRules.skipSeconds(p, c) == nil, "\(p)")
+        }
+    }
+
+    @Test func commandShiftSSkipsOnlyWhereALongerTierIsLeft() {
+        func s(_ p: GamePhase, _ c: GameConfig = GameConfig()) -> UICommand? {
+            NotchUIRules.command(for: .commandShiftS, phase: p, focused: .artist, config: c)
+        }
+        #expect(s(.playingSnippet(tierIndex: 0)) == .send(.skip))
+        #expect(s(.guessing(tierIndex: 1)) == .send(.skip))
+        #expect(s(.guessing(tierIndex: 2)) == nil)                          // never a hidden Give up
+        #expect(s(.playingSnippet(tierIndex: 1), GameConfig(tiers: [5, 10])) == nil)
+        for p in Self.allPhases where !NotchUIRules.showsGuessFields(p) {
+            #expect(s(p) == nil, "\(p)")
+        }
+        #expect(NotchUIRules.command(for: .commandShiftS, phase: .guessing(tierIndex: 0), focused: nil,
+                                     settingsOpen: true) == nil)
+    }
+
+    // MARK: Quit
+
+    @Test func quitShowsWhereAListingIsLoaded() {
+        #expect(!NotchUIRules.showsQuit(.idle))
+        #expect(!NotchUIRules.showsQuit(.exhausted))
+        #expect(Self.allPhases.filter(NotchUIRules.showsQuit).count == 9)
+    }
+
+    @Test func quitStaysArmedForThreeSeconds() {
+        #expect(!NotchUIRules.isQuitArmed(armedAt: nil, now: t0))
+        #expect(NotchUIRules.isQuitArmed(armedAt: t0, now: t0))
+        #expect(NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(2.99)))
+        #expect(!NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(3)))
+        #expect(!NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(-1)))   // clock went back
+        #expect(NotchUIRules.quitConfirmWindow == 3)
+    }
+
+    @Test func commandNQuitsAndEscOnlyDisarms() {
+        for p in Self.allPhases {
+            let expected: UICommand? = NotchUIRules.showsQuit(p) ? .quit : nil
+            #expect(NotchUIRules.command(for: .commandN, phase: p, focused: nil) == expected, "\(p)")
+            #expect(NotchUIRules.command(for: .commandN, phase: p, focused: nil, quitArmed: true) == expected, "\(p)")
+        }
+        // Armed: Esc cancels the question and nothing else (no Give up, no collapse).
+        for p in Self.allPhases where NotchUIRules.showsQuit(p) {
+            #expect(NotchUIRules.command(for: .escape, phase: p, focused: .title, quitArmed: true) == .disarmQuit, "\(p)")
+        }
+        #expect(NotchUIRules.command(for: .escape, phase: .guessing(tierIndex: 0), focused: .title,
+                                     settingsOpen: true, quitArmed: true) == .disarmQuit)
+        #expect(NotchUIRules.command(for: .escape, phase: .guessing(tierIndex: 0), focused: .title) == .send(.giveUp))
+        #expect(NotchUIRules.command(for: .commandN, phase: .guessing(tierIndex: 0), focused: nil,
+                                     settingsOpen: true) == nil)
+    }
+
+    @Test func restartLabelPerPhase() {
+        #expect(NotchUIRules.restartLabel(.playingSnippet(tierIndex: 1)) == "Replay snippet")
+        #expect(NotchUIRules.restartLabel(.guessing(tierIndex: 0)) == "Replay snippet")
+        #expect(NotchUIRules.restartLabel(.correct(tierIndex: 0)) == "Restart song")
+        #expect(NotchUIRules.restartLabel(.revealed(verdict: Verdict(titleCorrect: true, artistCorrect: false))) == "Restart song")
+        #expect(NotchUIRules.restartLabel(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: true, artistCorrect: false))) == nil)
+        #expect(Self.allPhases.filter(NotchUIRules.canRestart).count == 4)
+    }
+
     @Test func tabMovesBetweenTitleAndArtist() {
         let p = GamePhase.guessing(tierIndex: 0)
         #expect(NotchUIRules.command(for: .tab, phase: p, focused: .title) == .focus(.artist))
@@ -150,6 +247,17 @@ import NotchleCore
         #expect(C.keyInput(keyCode: 48, characters: "\t", modifiers: .shift) == .backTab)
         #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: .command) == .commandR)
         #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: []) == nil)       // typing "r"
+        #expect(C.keyInput(keyCode: 15, characters: "R", modifiers: [.command, .shift]) == .commandShiftR)
+        #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: [.command, .shift, .capsLock]) == .commandShiftR)
+        #expect(C.keyInput(keyCode: 15, characters: "R", modifiers: .shift) == nil)   // typing "R"
+        #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: [.command, .option]) == nil)
+        #expect(C.keyInput(keyCode: 15, characters: "r", modifiers: [.command, .shift, .control]) == nil)
+        #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: [.command, .shift]) == .commandShiftS)
+        #expect(C.keyInput(keyCode: 1, characters: "s", modifiers: .command) == nil)             // ⌘S: not ours
+        #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: .shift) == nil)               // typing "S"
+        #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: .command) == .commandN)
+        #expect(C.keyInput(keyCode: 45, characters: "N", modifiers: [.command, .shift]) == nil)
+        #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: []) == nil)                  // typing "n"
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: .shift) == nil)
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: [.capsLock, .numericPad]) == .returnKey)
         #expect(C.editAction(keyCode: 9, characters: "v", modifiers: .command) == #selector(NSText.paste(_:)))
@@ -168,6 +276,14 @@ import NotchleCore
                                              to: .playingSnippet(tierIndex: 2)) == .keepAndFocus(.title))
         #expect(NotchUIRules.fieldTransition(from: nil, to: .idle) == .focusURL)
         #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 0), to: .guessing(tierIndex: 0)) == .none)
+        // Restart (replay) from guessing: same track, keep the guess and the focus.
+        #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 0), to: .playingSnippet(tierIndex: 0)) == .none)
+        #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 2), to: .playingSnippet(tierIndex: 2)) == .none)
+        // Skip: next tier of the same track, keep the guess and the focus.
+        #expect(NotchUIRules.fieldTransition(from: .playingSnippet(tierIndex: 0), to: .playingSnippet(tierIndex: 1)) == .none)
+        #expect(NotchUIRules.fieldTransition(from: .guessing(tierIndex: 1), to: .playingSnippet(tierIndex: 2)) == .none)
+        // A new track from the last-tier snippet still clears (tier 0 is never a skip target).
+        #expect(NotchUIRules.fieldTransition(from: .playingSnippet(tierIndex: 2), to: .playingSnippet(tierIndex: 0)) == .clearAndFocusTitle)
     }
 
     @Test func labels() {

@@ -315,4 +315,224 @@ private func playSet(_ e: inout GameEngine, missing: Set<Int> = []) -> [GameEffe
             #expect(complete.state == before)
         }
     }
+
+    // MARK: Restart
+
+    @Test func restartWhilePlayingReplaysTheSameTierFromItsStart() throws {
+        var e = engine(config: GameConfig(tiers: [5, 10, 15], setSize: 20, snippetStart: 7))
+        let track = try #require(e.state.currentTrack)
+        let before = e.state
+        #expect(e.send(.restart) == [.playSnippet(track, start: 7, seconds: 5)])
+        #expect(e.state == before)                     // same phase, tier, results, index
+        #expect(e.state.phase == .playingSnippet(tierIndex: 0))
+    }
+
+    @Test func restartWhileGuessingReplaysWithoutUsingAnAttempt() throws {
+        var e = engine()
+        let track = try #require(e.state.currentTrack)
+        _ = e.send(wrongGuess)
+        _ = e.send(.retry)
+        _ = e.send(.snippetFinished)
+        #expect(e.state.phase == .guessing(tierIndex: 1))
+        let results = e.state.results
+
+        #expect(e.send(.restart) == [.playSnippet(track, start: 0, seconds: 10)])
+        #expect(e.state.phase == .playingSnippet(tierIndex: 1))
+        #expect(e.state.results == results)
+        #expect(e.state.index == 0)
+
+        // The replayed snippet finishing is the one real snippetFinished...
+        #expect(e.send(.snippetFinished) == [])
+        #expect(e.state.phase == .guessing(tierIndex: 1))
+        // ...and a stale one (e.g. from the snippet the restart cancelled) changes nothing.
+        let guessing = e.state
+        #expect(e.send(.snippetFinished) == [])
+        #expect(e.state == guessing)
+
+        // Still on the tier the restart replayed: a wrong guess offers 15s next, not a reveal.
+        _ = e.send(wrongGuess)
+        #expect(e.state.phase == .wrong(tierIndex: 1, verdict: wrongVerdict))
+        #expect(e.send(.retry) == [.playSnippet(track, start: 0, seconds: 15)])
+    }
+
+    @Test func restartAtTheLastTierDoesNotRevealOrRecordAMiss() {
+        var e = engine()
+        _ = e.send(wrongGuess); _ = e.send(.retry)
+        _ = e.send(wrongGuess); _ = e.send(.retry)
+        _ = e.send(.snippetFinished)
+        #expect(e.state.phase == .guessing(tierIndex: 2))
+        for _ in 0..<3 { _ = e.send(.restart); _ = e.send(.snippetFinished) }
+        #expect(e.state.phase == .guessing(tierIndex: 2))
+        #expect(e.state.results.isEmpty)
+        // The last wrong verdict survives the replays.
+        _ = e.send(.giveUp)
+        #expect(e.state.phase == .revealed(verdict: wrongVerdict))
+    }
+
+    @Test func restartAfterCorrectOrRevealedRestartsTheWholeSong() throws {
+        var e = engine()
+        let first = try #require(e.state.currentTrack)
+        _ = e.send(right(first))
+        let correct = e.state
+        #expect(e.send(.restart) == [.restartTrack(first)])
+        #expect(e.state == correct)
+        #expect(e.send(.snippetFinished) == [])        // stale: nothing moves
+        #expect(e.state == correct)
+
+        _ = e.send(.next)
+        let second = try #require(e.state.currentTrack)
+        _ = e.send(.giveUp)
+        let revealed = e.state
+        #expect(e.send(.restart) == [.restartTrack(second)])
+        #expect(e.state == revealed)
+        #expect(e.state.results == [.correct(tierIndex: 0), .missed])
+    }
+
+    @Test func restartIsIgnoredInWrongAndEveryOtherPhase() {
+        var wrong = engine()
+        _ = wrong.send(wrongGuess)
+        let wrongState = wrong.state
+        #expect(wrong.send(.restart) == [])
+        #expect(wrong.state == wrongState)
+
+        var idle = GameEngine(judge: IDJudge(), seed: 1)
+        let idleState = idle.state
+        #expect(idle.send(.restart) == [])
+        #expect(idle.state == idleState)
+
+        var loading = GameEngine(judge: IDJudge(), seed: 1)
+        _ = loading.send(.load(ref))
+        let loadingState = loading.state
+        #expect(loading.send(.restart) == [])
+        #expect(loading.state == loadingState)
+
+        var failed = engine()
+        _ = failed.send(.playbackFailed(message: "x"))
+        let errorState = failed.state
+        #expect(failed.send(.restart) == [])
+        #expect(failed.state == errorState)
+
+        var complete = engine(tracks: 20)
+        _ = playSet(&complete)
+        let completeState = complete.state
+        #expect(complete.send(.restart) == [])
+        #expect(complete.state == completeState)
+
+        var setFailed = engine(tracks: 20)
+        _ = playSet(&setFailed, missing: [0])
+        let setFailedState = setFailed.state
+        #expect(setFailed.send(.restart) == [])
+        #expect(setFailed.state == setFailedState)
+
+        let exhaustedAll = Set(listing(3).tracks.map(\.id))
+        var exhausted = engine(tracks: 3, cleared: exhaustedAll)
+        let exhaustedState = exhausted.state
+        #expect(exhausted.send(.restart) == [])
+        #expect(exhausted.state == exhaustedState)
+    }
+
+    // MARK: Skip
+
+    @Test func skipWhilePlayingForfeitsTheTierForTheNextOne() throws {
+        var e = engine(config: GameConfig(tiers: [5, 10, 15], setSize: 20, snippetStart: 3))
+        let track = try #require(e.state.currentTrack)
+        var expected = e.state
+        #expect(e.send(.skip) == [.playSnippet(track, start: 3, seconds: 10)])
+        expected.phase = .playingSnippet(tierIndex: 1)
+        #expect(e.state == expected)                   // only the tier moved: no result, same track
+    }
+
+    @Test func skipWhileGuessingPlaysTheNextTier() throws {
+        var e = engine()
+        let track = try #require(e.state.currentTrack)
+        _ = e.send(.skip)
+        _ = e.send(.snippetFinished)
+        #expect(e.state.phase == .guessing(tierIndex: 1))
+        #expect(e.send(.skip) == [.playSnippet(track, start: 0, seconds: 15)])
+        #expect(e.state.phase == .playingSnippet(tierIndex: 2))
+        #expect(e.state.results.isEmpty)
+    }
+
+    @Test func skipAtTheLastTierIsExactlyGiveUp() {
+        for finished in [false, true] {
+            for wrongFirst in [false, true] {
+                var e = engine()
+                if wrongFirst { _ = e.send(wrongGuess); _ = e.send(.retry) } else { _ = e.send(.skip) }
+                _ = e.send(.skip)
+                if finished { _ = e.send(.snippetFinished) }
+                #expect(e.state.phase == (finished ? .guessing(tierIndex: 2) : .playingSnippet(tierIndex: 2)))
+
+                var skipped = e, gaveUp = e
+                let skipEffects = skipped.send(.skip)
+                #expect(skipEffects == gaveUp.send(.giveUp))
+                #expect(skipped.state == gaveUp.state)
+                #expect(skipEffects == [.continuePlaying])
+                #expect(skipped.state.phase == .revealed(verdict: wrongFirst ? wrongVerdict : nil))
+                #expect(skipped.state.results == [.missed])
+            }
+        }
+    }
+
+    @Test func skipSkipThenCorrectAtFifteenSeconds() throws {
+        var e = engine()
+        let track = try #require(e.state.currentTrack)
+        #expect(e.send(.skip) == [.playSnippet(track, start: 0, seconds: 10)])
+        _ = e.send(.snippetFinished)
+        #expect(e.send(.skip) == [.playSnippet(track, start: 0, seconds: 15)])
+        #expect(e.send(right(track)) == [.continuePlaying])
+        #expect(e.state.phase == .correct(tierIndex: 2))
+        #expect(e.state.results == [.correct(tierIndex: 2)])
+    }
+
+    @Test func staleSnippetFinishedAfterASkipIsIgnored() {
+        var e = engine()
+        _ = e.send(.snippetFinished)                   // tier 0 done
+        _ = e.send(.skip)                              // tier 1 playing
+        _ = e.send(.snippetFinished)                   // tier 1 done
+        let guessing = e.state
+        #expect(guessing.phase == .guessing(tierIndex: 1))
+        #expect(e.send(.snippetFinished) == [])        // a late one (the skipped tier's) moves nothing
+        #expect(e.state == guessing)
+    }
+
+    @Test func skipIsIgnoredOutsideTheGuessPhases() {
+        var wrong = engine()
+        _ = wrong.send(wrongGuess)
+        let wrongState = wrong.state
+        #expect(wrong.send(.skip) == [])
+        #expect(wrong.state == wrongState)
+
+        var correct = engine()
+        _ = correct.send(right(correct.state.currentTrack))
+        let correctState = correct.state
+        #expect(correct.send(.skip) == [])
+        #expect(correct.state == correctState)
+
+        var revealed = engine()
+        _ = revealed.send(.giveUp)
+        let revealedState = revealed.state
+        #expect(revealed.send(.skip) == [])
+        #expect(revealed.state == revealedState)
+
+        var idle = GameEngine(judge: IDJudge(), seed: 1)
+        #expect(idle.send(.skip) == [])
+        #expect(idle.state.phase == .idle)
+
+        var loading = GameEngine(judge: IDJudge(), seed: 1)
+        _ = loading.send(.load(ref))
+        #expect(loading.send(.skip) == [])
+        #expect(loading.state.phase == .loading)
+
+        var failed = engine()
+        _ = failed.send(.playbackFailed(message: "x"))
+        let errorState = failed.state
+        #expect(failed.send(.skip) == [])
+        #expect(failed.state == errorState)
+
+        var complete = engine(tracks: 20)
+        _ = playSet(&complete)
+        let completeState = complete.state
+        #expect(complete.send(.skip) == [])
+        #expect(complete.state == completeState)
+    }
 }

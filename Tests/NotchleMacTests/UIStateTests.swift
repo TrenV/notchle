@@ -65,6 +65,182 @@ import NotchleCore
         #expect(ui.requestedFocus == .artist)
     }
 
+    @Test func replayWhileGuessingKeepsTheGuessAndTheFocus() {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { action in
+            sent.append(action)
+            if action == .restart { model.state.phase = .playingSnippet(tierIndex: 0) }
+        }
+        ui.requestFocus(.title)               // track start focused Title...
+        ui.focusedField = .artist             // ...then the player clicked into Artist
+        ui.titleText = "Paper"
+        ui.artistText = "Kit"
+        var old = model.state
+        old.phase = .guessing(tierIndex: 0)
+
+        ui.perform(.send(.restart))
+        #expect(sent == [.restart])
+        ui.stateDidChange(from: old, to: model.state, now: t0)
+        #expect(ui.titleText == "Paper" && ui.artistText == "Kit")
+        #expect(ui.requestedFocus == .artist)
+        #expect(ui.snippetStart == t0)
+    }
+
+    @Test func replayMidSnippetRestartsTheProgress() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 1))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }      // the engine leaves the phase as it is
+        ui.snippetStart = t0
+        ui.titleText = "Pap"
+        ui.restart(now: t0.addingTimeInterval(3))
+        #expect(sent == [.restart])
+        #expect(ui.snippetStart == t0.addingTimeInterval(3))
+        #expect(ui.titleText == "Pap")
+    }
+
+    @Test func restartAfterAnAnswerSendsRestartAndLeavesFieldsAlone() {
+        let (model, ui) = make(.correct(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.snippetStart = t0
+        ui.restart(now: t0.addingTimeInterval(9))
+        #expect(sent == [.restart])
+        #expect(ui.snippetStart == t0)        // no snippet: nothing to animate
+    }
+
+    @Test func restartIsIgnoredInWrong() {
+        let (model, ui) = make(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: true)))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.restart()
+        ui.perform(.send(.restart))
+        #expect(sent.isEmpty)
+    }
+
+    @Test func skipKeepsTheGuessAndTheFocus() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { action in
+            sent.append(action)
+            if action == .skip { model.state.phase = .playingSnippet(tierIndex: 1) }
+        }
+        ui.requestFocus(.title)
+        ui.focusedField = .artist
+        ui.titleText = "Paper"
+        ui.artistText = "Kit"
+        let old = model.state
+
+        ui.perform(.send(.skip))
+        #expect(sent == [.skip])
+        ui.stateDidChange(from: old, to: model.state, now: t0)
+        #expect(ui.titleText == "Paper" && ui.artistText == "Kit")
+        #expect(ui.requestedFocus == .artist)
+        #expect(ui.snippetStart == t0)                 // the longer snippet's progress starts now
+    }
+
+    @Test func skipDoesNothingAtTheLastTierOrOutsideGuessing() {
+        for phase in [GamePhase.guessing(tierIndex: 2), .playingSnippet(tierIndex: 2),
+                      .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false)),
+                      .correct(tierIndex: 0)] {
+            let (model, ui) = make(phase)
+            var sent: [GameAction] = []
+            model.send = { sent.append($0) }
+            ui.skip()
+            ui.perform(.send(.skip))
+            #expect(sent.isEmpty, "\(phase)")
+        }
+    }
+
+    // MARK: Quit
+
+    @Test func quitArmsThenConfirmsToAnEmptyFocusedURLField() {
+        let (model, ui) = make(.guessing(tierIndex: 1))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.clicked()
+        ui.urlText = "https://open.spotify.com/playlist/old"
+        ui.showingSettings = true
+
+        ui.quitPressed(now: t0)
+        #expect(ui.isQuitArmed(now: t0.addingTimeInterval(1)))
+        #expect(sent.isEmpty)                          // one click never quits
+
+        ui.quitPressed(now: t0.addingTimeInterval(2.5))
+        #expect(sent == [.reset])
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(2.5)))
+        #expect(ui.urlText.isEmpty)
+        #expect(ui.requestedFocus == .url)
+        #expect(ui.isExpanded)
+        #expect(!ui.showingSettings)
+
+        var idle = model.state                         // the engine's answer to .reset
+        idle.phase = .idle
+        ui.stateDidChange(from: model.state, to: idle, now: t0.addingTimeInterval(2.5))
+        #expect(ui.requestedFocus == .url)
+    }
+
+    @Test func quitRevertsAfterTheWindow() {
+        let (model, ui) = make(.correct(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.quitPressed(now: t0)
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(3.1)))
+        ui.quitPressed(now: t0.addingTimeInterval(3.1))   // too late: this arms again
+        #expect(sent.isEmpty)
+        #expect(ui.isQuitArmed(now: t0.addingTimeInterval(3.2)))
+    }
+
+    @Test func quitIsHiddenAndInertInIdleAndExhausted() {
+        for phase in [GamePhase.idle, .exhausted] {
+            let (model, ui) = make(phase)
+            var sent: [GameAction] = []
+            model.send = { sent.append($0) }
+            ui.quitPressed(now: t0)
+            ui.quitPressed(now: t0)
+            #expect(sent.isEmpty, "\(phase)")
+            #expect(!ui.isQuitArmed(now: t0), "\(phase)")
+        }
+    }
+
+    @Test func escAndCollapseDisarm() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.quitPressed(now: t0)
+        ui.perform(.disarmQuit)                        // Esc
+        #expect(!ui.isQuitArmed(now: t0))
+        ui.quitPressed(now: t0.addingTimeInterval(0.5))   // arms again rather than quitting
+        #expect(sent.isEmpty)
+        ui.collapse()
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(0.6)))
+        ui.quitPressed(now: t0.addingTimeInterval(0.7))
+        #expect(sent.isEmpty)
+    }
+
+    @Test func commandNOnACollapsedPanelOpensItAndHoldsItOpenWhileArmed() throws {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        #expect(!ui.isExpanded)
+        ui.perform(.quit)                              // ⌘N, mouse elsewhere
+        let armedAt = try #require(ui.quitArmedAt)
+        #expect(ui.isExpanded)
+        #expect(!ui.evaluateAutoCollapse(now: armedAt.addingTimeInterval(2)))   // still asking
+        #expect(ui.evaluateAutoCollapse(now: armedAt.addingTimeInterval(3.1)))  // expired: closes
+        #expect(!ui.isQuitArmed(now: armedAt.addingTimeInterval(3.1)))
+        #expect(sent.isEmpty)
+    }
+
+    @Test func leavingTheLoadedPhasesDisarms() {
+        let (model, ui) = make(.setFailed(correctCount: 3))
+        ui.quitPressed(now: t0)
+        var idle = model.state
+        idle.phase = .idle
+        ui.stateDidChange(from: model.state, to: idle, now: t0)
+        #expect(ui.quitArmedAt == nil)
+    }
+
     // MARK: Auto-close
 
     let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)
