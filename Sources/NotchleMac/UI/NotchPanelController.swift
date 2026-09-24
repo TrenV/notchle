@@ -9,7 +9,7 @@ import NotchleCore
 ///   follows screen changes.
 /// - Only the visible shape takes the mouse: the panel ignores mouse events everywhere else,
 ///   toggled from the pointer position, so the menu bar stays clickable around it.
-/// - Handles Return/Esc/Tab/⌘R and the edit shortcuts (an accessory app has no Edit menu, so
+/// - Handles Return/Esc/Tab/⌘R/⌘⇧R and the edit shortcuts (an accessory app has no Edit menu, so
 ///   ⌘V would otherwise not paste into the URL field).
 @MainActor
 public final class NotchPanelController {
@@ -239,6 +239,7 @@ public final class NotchPanelController {
             return mods == .shift ? .backTab : nil
         default:
             if mods == .command, characters?.lowercased() == "r" { return .commandR }
+            if mods == [.command, .shift], characters?.lowercased() == "r" { return .commandShiftR }
             return nil
         }
     }

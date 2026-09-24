@@ -126,6 +126,7 @@ struct GuessView: View {
                     Text("What's this song?")
                 }
                 Spacer()
+                RestartButton(ui: ui)
                 AttemptDots(tiers: config.tiers, current: tier)
             }
             .font(.system(size: 12.5, weight: .semibold))
@@ -219,6 +220,7 @@ struct AnswerView: View {
                         .foregroundStyle(NotchPalette.secondaryText)
                 }
                 Spacer()
+                RestartButton(ui: ui)
                 EqualizerGlyph(playing: true, color: NotchPalette.secondaryText)
             }
             .font(.system(size: 12, weight: .semibold))

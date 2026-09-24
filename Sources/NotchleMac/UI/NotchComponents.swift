@@ -97,6 +97,28 @@ struct NotchTextField: View {
     }
 }
 
+/// Small secondary ↺ button: replays the snippet or restarts the song (⌘⇧R). Hidden where
+/// `NotchUIRules.restartLabel` is nil. Its label is a fixed string, never the track.
+struct RestartButton: View {
+    let ui: NotchUIState
+
+    var body: some View {
+        if let label = NotchUIRules.restartLabel(ui.phase) {
+            Button { ui.restart() } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(NotchPalette.secondaryText)
+                    .frame(width: 20, height: 18)
+                    .background(Capsule().fill(Color.white.opacity(0.09)))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("\(label) (⌘⇧R)")
+            .accessibilityLabel(label)
+        }
+    }
+}
+
 /// Three pills, one per tier ("5s 10s 15s"): used tiers red, current white, later dim.
 struct AttemptDots: View {
     let tiers: [Double]

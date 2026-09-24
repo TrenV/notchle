@@ -65,6 +65,59 @@ import NotchleCore
         #expect(ui.requestedFocus == .artist)
     }
 
+    @Test func replayWhileGuessingKeepsTheGuessAndTheFocus() {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { action in
+            sent.append(action)
+            if action == .restart { model.state.phase = .playingSnippet(tierIndex: 0) }
+        }
+        ui.requestFocus(.title)               // track start focused Title...
+        ui.focusedField = .artist             // ...then the player clicked into Artist
+        ui.titleText = "Paper"
+        ui.artistText = "Kit"
+        var old = model.state
+        old.phase = .guessing(tierIndex: 0)
+
+        ui.perform(.send(.restart))
+        #expect(sent == [.restart])
+        ui.stateDidChange(from: old, to: model.state, now: t0)
+        #expect(ui.titleText == "Paper" && ui.artistText == "Kit")
+        #expect(ui.requestedFocus == .artist)
+        #expect(ui.snippetStart == t0)
+    }
+
+    @Test func replayMidSnippetRestartsTheProgress() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 1))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }      // the engine leaves the phase as it is
+        ui.snippetStart = t0
+        ui.titleText = "Pap"
+        ui.restart(now: t0.addingTimeInterval(3))
+        #expect(sent == [.restart])
+        #expect(ui.snippetStart == t0.addingTimeInterval(3))
+        #expect(ui.titleText == "Pap")
+    }
+
+    @Test func restartAfterAnAnswerSendsRestartAndLeavesFieldsAlone() {
+        let (model, ui) = make(.correct(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.snippetStart = t0
+        ui.restart(now: t0.addingTimeInterval(9))
+        #expect(sent == [.restart])
+        #expect(ui.snippetStart == t0)        // no snippet: nothing to animate
+    }
+
+    @Test func restartIsIgnoredInWrong() {
+        let (model, ui) = make(.wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: true)))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.restart()
+        ui.perform(.send(.restart))
+        #expect(sent.isEmpty)
+    }
+
     // MARK: Auto-close
 
     let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)

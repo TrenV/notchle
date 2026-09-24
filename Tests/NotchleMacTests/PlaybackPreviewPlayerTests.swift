@@ -105,6 +105,61 @@ import Testing
         await player.stop()
     }
 
+    @Test func restartTrackWithoutAPreviewIsNoPreview() async {
+        await #expect(throws: PlayerError.noPreview) {
+            try await PreviewPlayer(volume: 0).restartTrack(Self.track(nil))
+        }
+    }
+
+    @Test func restartTrackSeeksTheLoadedClipToZeroAndKeepsPlaying() async throws {
+        let player = PreviewPlayer(volume: 0)
+        let url = try Self.wavClip(seconds: 8)
+        try await player.playSnippet(of: Self.track(url), from: 2, seconds: 0.3)
+        #expect(player.isPaused)
+        #expect(try #require(player.currentTime) > 2)
+
+        try await player.restartTrack(Self.track(url))
+        #expect(player.loadedURL == url)
+        // Back from ~2.3s to 0:00 (the seek has landed when restartTrack returns)...
+        let restartedAt = try #require(player.currentTime)
+        #expect(restartedAt < 0.05, "at \(restartedAt)s")
+        // ...then plays on, on the media clock (AVPlayer takes ~250 ms to get going).
+        #expect(await S.waitUntil(timeout: .seconds(5)) { (player.currentTime ?? 0) > 0.3 })
+        #expect(player.isPlaying, "the restarted clip paused")
+        #expect(try #require(player.currentTime) < 2, "restart didn't go back to 0:00")
+        await player.stop()
+    }
+
+    @Test func restartTrackLoadsADifferentClip() async throws {
+        let player = PreviewPlayer(volume: 0)
+        let first = try Self.wavClip(seconds: 8)
+        let second = try Self.wavClip(seconds: 3)
+        try await player.playSnippet(of: Self.track(first), from: 0, seconds: 0.2)
+
+        try await player.restartTrack(Self.track(second))
+        #expect(player.loadedURL == second)
+        #expect(await S.waitUntil { player.isPlaying })
+        #expect(try #require(player.currentTime) < 1.5)
+        await player.stop()
+    }
+
+    @Test func cancelledSnippetDoesNotPauseTheRestartedClip() async throws {
+        let player = PreviewPlayer(volume: 0)
+        let track = Self.track(try Self.wavClip(seconds: 8))
+        let snippet = Task { try await player.playSnippet(of: track, from: 0, seconds: 5) }
+        #expect(await S.waitUntil { player.isPlaying })
+
+        // The snippet's cleanup lands after the restart has started the clip (cancelling first
+        // would let the cleanup pause before the restart's seek finishes, proving nothing).
+        try await player.restartTrack(track)
+        snippet.cancel()
+        let result = await snippet.result
+        #expect(throws: CancellationError.self) { try result.get() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(player.isPlaying, "the cancelled snippet's cleanup paused the restarted clip")
+        await player.stop()
+    }
+
     @Test func continuePlayingResumesAndStopClearsTheItem() async throws {
         let player = PreviewPlayer(volume: 0)
         try await player.playSnippet(of: Self.track(try Self.wavClip(seconds: 8)), from: 0, seconds: 0.2)

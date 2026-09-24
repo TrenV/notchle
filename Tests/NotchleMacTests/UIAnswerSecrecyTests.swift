@@ -37,6 +37,7 @@ import NotchleCore
         let s = Self.state(.guessing(tierIndex: 0))
         let texts = [NotchUIRules.artistPlaceholder(artistCount: NotchUIRules.artistCount(s)),
                      NotchUIRules.progressText(s),
+                     NotchUIRules.restartLabel(s.phase) ?? "",
                      NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false),
                                              artistCount: NotchUIRules.artistCount(s)) ?? ""]
         for t in texts {
@@ -45,6 +46,7 @@ import NotchleCore
             #expect(!t.contains("Mabel"))
         }
         #expect(texts[0] == "2 artists, any order")
+        #expect(texts[2] == "Replay snippet")
     }
 
     // MARK: Rendered proof: draw the real views, OCR the pixels.

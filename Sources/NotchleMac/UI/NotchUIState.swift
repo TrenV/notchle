@@ -192,6 +192,7 @@ public final class NotchUIState {
         switch command {
         case .submitGuess: submitGuess()
         case .load: load()
+        case .send(.restart): restart()
         case .send(let action): model.send(action)
         case .collapse:
             collapse()
@@ -223,6 +224,18 @@ public final class NotchUIState {
         if artist.isEmpty { requestFocus(.artist); return }
         lastKeyAt = nil                // submitted: no longer typing
         model.send(.submit(Guess(title: title, artist: artist)))
+    }
+
+    /// Replays the snippet (guess phases) or restarts the song (correct/revealed). The typed
+    /// guess and the focus stay: it is the same track.
+    public func restart(now: Date = Date()) {
+        let before = phase
+        guard NotchUIRules.canRestart(before) else { return }
+        // A phase change re-applies `requestedFocus`: point it at the field the player is in.
+        if let field = focusedField, NotchUIRules.showsGuessFields(before) { requestFocus(field) }
+        model.send(.restart)
+        // playingSnippet → playingSnippet is no phase change, so restart the progress here.
+        if case .playingSnippet = before, case .playingSnippet = phase { snippetStart = now }
     }
 
     public func setPlayerMode(_ mode: PlayerMode) {

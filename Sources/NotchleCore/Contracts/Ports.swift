@@ -43,6 +43,8 @@ public struct URLSessionHTTPClient: HTTPClient {
 ///   played and playback is paused. It must react to Task cancellation promptly (pause and
 ///   throw `CancellationError`) because the player may submit a guess mid-snippet.
 /// - `continuePlaying` resumes the current track from wherever it is paused, to the end.
+/// - `restartTrack` plays `track` from 0:00 and keeps playing (no pause). A snippet it
+///   interrupts must not pause it afterwards.
 /// - Nothing an implementation does may reveal the title or artist on screen.
 public protocol Player: Sendable {
     /// Shown in settings, e.g. "Spotify app" or "30-second previews".
@@ -52,6 +54,8 @@ public protocol Player: Sendable {
 
     func playSnippet(of track: Track, from start: Double, seconds: Double) async throws
     func continuePlaying() async throws
+    /// Plays `track` from 0:00 and keeps playing (no pause). Must not reveal the title on screen.
+    func restartTrack(_ track: Track) async throws
     func stop() async
 }
 

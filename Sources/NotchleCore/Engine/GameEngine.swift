@@ -60,6 +60,14 @@ public struct GameEngine: Sendable {
         case (.giveUp, .playingSnippet), (.giveUp, .guessing), (.giveUp, .wrong):
             return reveal(lastVerdict)
 
+        // Replay the same tier: no attempt used, no result, the typed guess is the UI's business.
+        case let (.restart, .playingSnippet(tier)), let (.restart, .guessing(tier)):
+            return playSnippet(tier: tier)
+
+        case (.restart, .correct), (.restart, .revealed):
+            guard let track = state.currentTrack else { return [] }
+            return [.restartTrack(track)]
+
         case (.next, .correct), (.next, .revealed), (.next, .error):
             return advance()
 

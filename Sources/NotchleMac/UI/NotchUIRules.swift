@@ -9,6 +9,8 @@ public enum UIField: Hashable, Sendable {
 /// Keys the notch handles itself (everything else goes to the focused control).
 public enum UIKeyInput: Hashable, Sendable {
     case returnKey, escape, tab, backTab, commandR
+    /// ⌘⇧R: restart (replay the snippet, or the whole song once it is answered).
+    case commandShiftR
 }
 
 /// What a key means in the current phase.
@@ -60,6 +62,18 @@ public enum NotchUIRules {
         }
     }
 
+    /// The restart button's label, or nil where it is hidden. Never mentions the track.
+    /// Hidden in `wrong`: Retry is the way on there (a free replay would be a free guess).
+    public static func restartLabel(_ phase: GamePhase) -> String? {
+        switch phase {
+        case .playingSnippet, .guessing: "Replay snippet"
+        case .correct, .revealed: "Restart song"
+        default: nil
+        }
+    }
+
+    public static func canRestart(_ phase: GamePhase) -> Bool { restartLabel(phase) != nil }
+
     /// Phases that show the Spotify URL field.
     public static func showsURLField(_ phase: GamePhase) -> Bool {
         switch phase {
@@ -99,7 +113,7 @@ public enum NotchUIRules {
 
     /// What a key press on the key-but-collapsed panel does.
     public enum CollapsedKeyBehavior: Hashable, Sendable {
-        /// Run the phase's command without opening (Return = Next, ⌘R = Retry).
+        /// Run the phase's command without opening (Return = Next, ⌘R = Retry, ⌘⇧R = Restart).
         case perform
         /// Open the panel; nothing else (never submit a guess blind).
         case expand
@@ -115,7 +129,7 @@ public enum NotchUIRules {
         case nil: return fields ? .expandAndReplay : .ignore
         case .returnKey?: return fields ? .expand : .perform
         case .tab?, .backTab?: return fields ? .expand : .ignore
-        case .commandR?: return .perform
+        case .commandR?, .commandShiftR?: return .perform
         case .escape?: return .ignore       // never give up on a panel you cannot see
         }
     }
@@ -236,6 +250,8 @@ public enum NotchUIRules {
         case .playingSnippet(let tier), .guessing(let tier):
             // Snippet → guessing of the same tier: the player may be mid-typing; leave them be.
             if case .playingSnippet(let t) = old, t == tier, case .guessing = new { return .none }
+            // Guessing → snippet of the same tier is a replay (restart): same track, same guess.
+            if case .guessing(let t) = old, t == tier, case .playingSnippet = new { return .none }
             if case .wrong(_, let verdict) = old, tier > 0 {
                 return .keepAndFocus(verdict.titleCorrect ? .artist : .title)
             }
@@ -265,6 +281,8 @@ public enum NotchUIRules {
         case .commandR:
             if case .wrong = phase { return .send(.retry) }
             return nil
+        case .commandShiftR:
+            return canRestart(phase) ? .send(.restart) : nil
         case .escape:
             return isGuessPhase(phase) ? .send(.giveUp) : .collapse
         case .tab, .backTab:

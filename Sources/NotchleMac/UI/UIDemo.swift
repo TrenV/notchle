@@ -204,6 +204,10 @@ final class DemoGame {
             log("phase → \(s.phase)")
         case (.retry, .wrong(let tier, _)):
             playSnippet(tier: tier + 1)
+        case (.restart, .playingSnippet(let tier)), (.restart, .guessing(let tier)):
+            playSnippet(tier: tier)
+        case (.restart, .correct), (.restart, .revealed):
+            log("restart song from 0:00")
         case (.giveUp, .playingSnippet), (.giveUp, .guessing), (.giveUp, .wrong):
             snippetToken += 1
             s.results.append(.missed)
