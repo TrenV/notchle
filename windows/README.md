@@ -118,6 +118,16 @@ is not open. 429 means rate limited.
 Status: implemented and tested against a fake Spotify, but **never run against the real
 service**. Treat it as unverified until someone connects a real account.
 
+### Apple Music (not supported on Windows)
+
+There is no clean full-song path. The Apple Music app for Windows has no scripting or
+automation API (iTunes' COM interface doesn't carry over), and the other route, MusicKit JS
+in a WebView, needs a developer token signed with a MusicKit key from a paid Apple Developer
+Program membership. The macOS app's Apple Music player drives Music.app by AppleScript, which
+has no Windows equivalent. Reading music.apple.com links would be easy to port
+(`AppleMusicTrackSource` is Foundation-only), but without a player it would only offer
+30-second previews, so it's left out.
+
 ## Snippet timing
 
 Both macOS players reported "playing" about 250–300 ms before the audio actually moved,

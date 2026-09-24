@@ -14,6 +14,10 @@ extension SourceRef {
     /// episodes, users, other hosts and malformed ids give nil.
     public init?(string: String) {
         let text = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let apple = Self.appleMusic(text) {
+            self = apple
+            return
+        }
         let parts: (kind: Substring, id: Substring)?
         if text.lowercased().hasPrefix("spotify:") {
             parts = Self.uriParts(text)
@@ -30,6 +34,38 @@ extension SourceRef {
     /// The public embed page for this ref.
     public var embedURL: URL {
         URL(string: "https://open.spotify.com/embed/\(kind.rawValue)/\(id)")!
+    }
+
+    /// `[https://]music.apple.com/<storefront>/(album|playlist)[/<slug>]/<id>[?i=…]`. Album ids
+    /// are digits, playlist ids `pl.` + letters/digits. A song link (`album/…?i=<song>`) gives
+    /// its album. Songs, artists, other hosts and malformed ids give nil.
+    static func appleMusic(_ text: String) -> SourceRef? {
+        var rest = Substring(text)
+        for scheme in ["https://", "http://"] where rest.lowercased().hasPrefix(scheme) {
+            rest = rest.dropFirst(scheme.count)
+            break
+        }
+        if let cut = rest.firstIndex(where: { $0 == "?" || $0 == "#" }) { rest = rest[..<cut] }
+        let segments = rest.split(separator: "/")
+        guard segments.count == 4 || segments.count == 5,
+              segments[0].lowercased() == "music.apple.com"
+        else { return nil }
+        let storefront = segments[1].lowercased()
+        guard storefront.count == 2, storefront.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        let id = String(segments[segments.count - 1])
+        switch segments[2].lowercased() {
+        case "album":
+            guard !id.isEmpty, id.count <= 20, id.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            return SourceRef(kind: .appleMusicAlbum, id: id, storefront: storefront)
+        case "playlist":
+            let body = id.dropFirst(3)
+            guard id.hasPrefix("pl."), !body.isEmpty, body.count <= 64,
+                  body.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
+            else { return nil }
+            return SourceRef(kind: .appleMusicPlaylist, id: id, storefront: storefront)
+        default:
+            return nil
+        }
     }
 
     /// Spotify ids are 22 base62 characters.

@@ -82,7 +82,7 @@ struct SourceRefParsingTests {
     }
 
     @Test func embedURLRoundTripsThroughParser() throws {
-        for kind in SourceKind.allCases {
+        for kind in SourceKind.allCases where !kind.isAppleMusic {
             let ref = SourceRef(kind: kind, id: playlistID)
             #expect(ref.embedURL.absoluteString == "https://open.spotify.com/embed/\(kind.rawValue)/\(playlistID)")
             #expect(SourceRef(string: ref.embedURL.absoluteString) == ref)

@@ -280,7 +280,7 @@ public final class NotchUIState {
     public func load() {
         let text = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            urlMessage = "Paste a Spotify playlist, album or artist link"
+            urlMessage = "Paste a Spotify or Apple Music playlist or album link"
             return
         }
         guard let ref = parseSource(text) else {

@@ -18,6 +18,7 @@ public extension NotchUIRules {
         (.spotifyApp, "Spotify app"),
         (.spotifyConnect, "Spotify (no window, Premium)"),
         (.preview, "30-second previews"),
+        (.appleMusic, "Apple Music (experimental)"),
     ]
 
     static let spotifyConnectHelp =

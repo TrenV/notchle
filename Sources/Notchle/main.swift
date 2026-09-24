@@ -19,6 +19,12 @@ if arguments.contains("--probe-spotify-connect") {
         exit(0)
     }
     app.run()
+} else if arguments.contains("--probe-music-window") {
+    Task { @MainActor in
+        await MusicWindowProbe.run()
+        exit(0)
+    }
+    app.run()
 } else if arguments.contains("--probe-spotify-window") {
     Task { @MainActor in
         await SpotifyWindowProbe.run()

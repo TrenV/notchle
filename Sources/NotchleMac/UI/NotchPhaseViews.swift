@@ -72,7 +72,7 @@ struct SourceEntryView: View {
                     Image(systemName: "exclamationmark.circle.fill")
                     Text(message)
                 } else {
-                    Text("Links from open.spotify.com or spotify: URIs")
+                    Text("Links from open.spotify.com or music.apple.com")
                         .foregroundStyle(NotchPalette.tertiaryText)
                 }
             }
