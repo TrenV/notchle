@@ -77,6 +77,9 @@ public enum PlayerMode: String, Sendable, Codable, CaseIterable {
     /// value matches the Windows port's `SpotifyConnect` in progress.json.
     case spotifyConnect
     case preview
+    /// Full tracks from the user's own library in Music.app, driven by AppleScript. Experimental:
+    /// whether Music.app stays out of sight is measured by `--probe-music-window`.
+    case appleMusic
 }
 
 public struct AppSettings: Sendable, Hashable, Codable {

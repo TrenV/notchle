@@ -78,6 +78,37 @@ stays hidden with a real account hasn't been observed yet.
 Settings also has a **Quit Notchle** button, for Macs where the ♪ menu-bar icon ends up
 hidden behind the notch.
 
+### Apple Music (experimental)
+
+Paste a `music.apple.com` **album** or **playlist** link (any storefront, e.g.
+`https://music.apple.com/nl/album/…/1440857781` or `…/playlist/…/pl.…`). Albums are read
+through Apple's public iTunes Lookup API, playlists from the public page. No Apple ID or
+developer token is needed for this part. Artist and single-song links aren't supported.
+
+To hear **full songs** from Apple Music, choose **Apple Music (experimental)** in settings.
+Notchle then drives Music.app by AppleScript:
+
+- It only plays songs that are **in your Music library**. Music's scripting dictionary has no
+  command that plays or adds a catalog song by id, and opening the song's link would show it
+  in Music's window. With an Apple Music subscription: open the playlist or album in Music,
+  choose **Add to Library** (Sync Library on). Songs are then found by title, artist and length,
+  so this player also works for Spotify links whose songs are in your library.
+- Music is launched hidden and hidden again after every song. Whether Music ever flashes its
+  window or takes focus on a track change is **not measured yet**. Run the probe once and check
+  that every line says `NEVER visible · activated: false`:
+
+      build/Notchle.app/Contents/MacOS/Notchle --probe-music-window
+
+  It plays ~2 s of the first two songs in your library, then pauses (results also in
+  `~/Library/Logs/Notchle-music-window-probe.txt`). The first run asks for Automation access to Music.
+- Turn off Music's song-change notifications (Music › Settings › General › Notifications) so a
+  banner can't show the title.
+
+Not possible without a paid Apple Developer Program membership: playing catalog songs that
+aren't in your library (MusicKit's `ApplicationMusicPlayer` on macOS 14+ needs the MusicKit
+app service on a registered App ID; MusicKit JS needs a developer token signed with a MusicKit
+key). Notchle is ad-hoc signed, so neither is available.
+
 ### Start at login (optional)
 
 System Settings → General → Login Items → **+** → pick Notchle in Applications.

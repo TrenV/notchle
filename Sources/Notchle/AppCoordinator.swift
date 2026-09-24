@@ -32,7 +32,7 @@ final class AppCoordinator {
     }
 
     init(
-        source: TrackSource = EmbedTrackSource(),
+        source: TrackSource = RoutingTrackSource(),
         store: ProgressStore = AppCoordinator.defaultStore(),
         historyStore: HistoryStore? = nil,
         artwork: ArtworkResolver = ArtworkResolver(),
@@ -248,6 +248,7 @@ final class AppCoordinator {
         case .spotifyApp: SpotifyAppPlayer()
         case .spotifyConnect: SpotifyConnectPlayer(api: sharedSpotifyConnect.api)
         case .preview: PreviewPlayer()
+        case .appleMusic: AppleMusicPlayer()
         }
     }
 
@@ -266,7 +267,7 @@ final class AppCoordinator {
     static func describe(_ error: Error) -> String {
         switch error {
         case PlayerError.notAuthorized:
-            return "Notchle isn't allowed to control Spotify. Allow it in System Settings › Privacy & Security › Automation."
+            return "Notchle isn't allowed to control the music app. Allow it in System Settings › Privacy & Security › Automation."
         case PlayerError.unavailable(let reason):
             return "\(reason). Switch to 30-second previews in settings."
         case PlayerError.noPreview:
@@ -274,13 +275,13 @@ final class AppCoordinator {
         case PlayerError.failed(let reason):
             return reason
         case SourceError.invalidURL:
-            return "That doesn't look like a Spotify playlist, album or artist link."
+            return "That doesn't look like a Spotify or Apple Music playlist, album or artist link."
         case SourceError.notFound:
-            return "Spotify couldn't find that. Is it public?"
+            return "Couldn't find that. Is it public?"
         case SourceError.network(let reason):
-            return "Couldn't reach Spotify: \(reason)"
+            return "Couldn't reach the music service: \(reason)"
         case SourceError.parseFailed(let reason):
-            return "Couldn't read that Spotify page: \(reason)"
+            return "Couldn't read that page: \(reason)"
         case SourceError.empty:
             return "No playable songs on that page."
         default:

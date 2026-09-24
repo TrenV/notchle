@@ -13,7 +13,13 @@ if let i = arguments.firstIndex(of: "--ui-snapshots"), i + 1 < arguments.count {
     exit(0)
 }
 
-if arguments.contains("--probe-spotify-window") {
+if arguments.contains("--probe-music-window") {
+    Task { @MainActor in
+        await MusicWindowProbe.run()
+        exit(0)
+    }
+    app.run()
+} else if arguments.contains("--probe-spotify-window") {
     Task { @MainActor in
         await SpotifyWindowProbe.run()
         exit(0)

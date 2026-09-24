@@ -7,8 +7,8 @@ import Testing
     typealias R = NotchUIRules
 
     @Test func pickerOffersThreePlayersInOrder() {
-        #expect(R.playerChoices.map(\.mode) == [.spotifyApp, .spotifyConnect, .preview])
-        #expect(R.playerChoices.map(\.label) == ["Spotify app", "Spotify (no window, Premium)", "30-second previews"])
+        #expect(R.playerChoices.map(\.mode) == [.spotifyApp, .spotifyConnect, .preview, .appleMusic])
+        #expect(R.playerChoices.map(\.label) == ["Spotify app", "Spotify (no window, Premium)", "30-second previews", "Apple Music (experimental)"])
     }
 
     @Test func connectControlsOnlyForTheConnectPlayer() {

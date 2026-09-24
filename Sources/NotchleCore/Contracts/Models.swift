@@ -25,9 +25,16 @@ public struct Track: Sendable, Hashable, Codable, Identifiable {
     }
 }
 
-/// What a pasted Spotify URL points at.
+/// What a pasted link points at. Raw values are persisted (progress.json, history): additive only.
 public enum SourceKind: String, Sendable, Codable, CaseIterable {
     case playlist, album, artist
+    /// `music.apple.com/<storefront>/album/…/<digits>`.
+    case appleMusicAlbum
+    /// `music.apple.com/<storefront>/playlist/…/pl.<id>`.
+    case appleMusicPlaylist
+
+    /// Apple Music kinds are read by `AppleMusicTrackSource`, the rest by `EmbedTrackSource`.
+    public var isAppleMusic: Bool { self == .appleMusicAlbum || self == .appleMusicPlaylist }
 }
 
 /// A parsed Spotify link, e.g. `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=…`
@@ -35,10 +42,14 @@ public enum SourceKind: String, Sendable, Codable, CaseIterable {
 public struct SourceRef: Sendable, Hashable, Codable {
     public let kind: SourceKind
     public let id: String
+    /// Apple Music storefront from the link ("us", "nl"); nil for Spotify. Optional so older
+    /// progress.json files (without the key) still decode.
+    public let storefront: String?
 
-    public init(kind: SourceKind, id: String) {
+    public init(kind: SourceKind, id: String, storefront: String? = nil) {
         self.kind = kind
         self.id = id
+        self.storefront = storefront
     }
 }
 
