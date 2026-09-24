@@ -26,7 +26,7 @@ import Testing
         #expect(log[1].body == #"{"device_ids":["mac"],"play":false}"#)
         let play = try #require(log.first { $0.name == "PUT /v1/me/player/play" })
         #expect(play.query == "device_id=mac")
-        #expect(play.body == #"{"position_ms":30000,"uris":["spotify:track:2FZcjBYK4dTt48q94pJbJD"]}"#)
+        #expect(play.body == #"{"context_uri":"spotify:album:ALBUM","offset":{"uri":"spotify:track:2FZcjBYK4dTt48q94pJbJD"},"position_ms":30000}"#)
         #expect(log.last?.query == "device_id=mac")
         // Timed by progress_ms: from the play request to the pause is ~0.25 s of "audio".
         let played = (log.last!.at - play.at).seconds
@@ -133,7 +133,7 @@ import Testing
 
         let plays = web.log.filter { $0.name == "PUT /v1/me/player/play" }
         #expect(plays.count == 2)
-        #expect(plays.last?.body == #"{"position_ms":0,"uris":["spotify:track:2FZcjBYK4dTt48q94pJbJD"]}"#)
+        #expect(plays.last?.body == #"{"context_uri":"spotify:album:ALBUM","offset":{"uri":"spotify:track:2FZcjBYK4dTt48q94pJbJD"},"position_ms":0}"#)
         let afterRestart = web.log.drop { $0.at < plays.last!.at }.map(\.name)
         #expect(!afterRestart.contains("PUT /v1/me/player/pause"), "calls: \(web.calls)")
         #expect(web.state.withLock { $0.movingSince } != nil, "the restarted song is playing")
@@ -145,7 +145,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(100))
         #expect(web.playerCalls == ["GET /v1/me/player/devices", "PUT /v1/me/player", "PUT /v1/me/player/play", "HIDE"],
                 "calls: \(web.calls)")
-        #expect(web.log[2].body == #"{"position_ms":0,"uris":["spotify:track:2FZcjBYK4dTt48q94pJbJD"]}"#)
+        #expect(web.log.first { $0.name == "PUT /v1/me/player/play" }?.body == #"{"context_uri":"spotify:album:ALBUM","offset":{"uri":"spotify:track:2FZcjBYK4dTt48q94pJbJD"},"position_ms":0}"#)
     }
 
     @Test func stopPausesTheKnownDeviceOnly() async throws {

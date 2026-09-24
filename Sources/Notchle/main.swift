@@ -13,7 +13,20 @@ if let i = arguments.firstIndex(of: "--ui-snapshots"), i + 1 < arguments.count {
     exit(0)
 }
 
-if arguments.contains("--probe-spotify-connect") {
+if let i = arguments.firstIndex(of: "--probe-spotify-requests"), i + 1 < arguments.count {
+    let file = arguments[i + 1]
+    Task { @MainActor in
+        await SpotifyConnectProbe.runScript(file)
+        exit(0)
+    }
+    app.run()
+} else if arguments.contains("--probe-spotify-connect-live") {
+    Task { @MainActor in
+        await SpotifyConnectProbe.runLive()
+        exit(0)
+    }
+    app.run()
+} else if arguments.contains("--probe-spotify-connect") {
     Task { @MainActor in
         await SpotifyConnectProbe.run()
         exit(0)

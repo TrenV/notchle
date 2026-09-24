@@ -65,9 +65,24 @@ public enum SpotifyPlayerAPI {
     }
 
     /// PUT /me/player/play: this one track, from positionMs, on the given device.
-    public static func play(deviceID: String, trackURI: String, positionMs: Int) -> HTTPRequest {
-        put("me/player/play?device_id=\(SpotifyAccounts.percentEncode(deviceID))",
-            json: ["uris": [trackURI], "position_ms": max(0, positionMs)])
+    /// With `contextURI` (the track's album) it plays "that album, from this track": measured on
+    /// Tren's account (2026-09-24), a bare `uris` play is accepted with 204 but Spotify then
+    /// empties the player, while the album-context play works.
+    public static func play(deviceID: String, trackURI: String, positionMs: Int, contextURI: String? = nil) -> HTTPRequest {
+        let path = "me/player/play?device_id=\(SpotifyAccounts.percentEncode(deviceID))"
+        if let contextURI {
+            return put(path, json: ["context_uri": contextURI, "offset": ["uri": trackURI], "position_ms": max(0, positionMs)])
+        }
+        return put(path, json: ["uris": [trackURI], "position_ms": max(0, positionMs)])
+    }
+
+    /// GET /tracks/{id}: used for the album uri (the play context).
+    public static func track(id: String) -> HTTPRequest {
+        HTTPRequest(method: "GET", url: url("tracks/\(SpotifyAccounts.percentEncode(id))?market=from_token"))
+    }
+
+    public static func parseAlbumURI(_ body: Data) -> String? {
+        (jsonObject(body)?["album"] as? [String: Any])?["uri"] as? String
     }
 
     /// PUT /me/player/play without a body resumes the current track.

@@ -45,7 +45,9 @@ final class FakeSpotifyWeb: HTTPRequesting, Sendable {
 
     var log: [Entry] { state.withLock { $0.log } }
     var calls: [String] { log.map(\.name) }
-    var playerCalls: [String] { calls.filter { $0 != "GET /v1/me/player" } }
+    /// Player commands only: status polls and the album lookup (GET /v1/tracks/…) left out.
+    var playerCalls: [String] { calls.filter { $0 != "GET /v1/me/player" && !$0.hasPrefix("GET /v1/tracks/") } }
+    static let albumURI = "spotify:album:ALBUM"
 
     func position(_ s: State) -> Int {
         guard let since = s.movingSince else { return s.basePositionMs }
@@ -67,6 +69,8 @@ final class FakeSpotifyWeb: HTTPRequesting, Sendable {
             switch entry.name {
             case "POST /api/token":
                 return HTTPResponse(status: 200, text: tokenJSON)
+            case let name where name.hasPrefix("GET /v1/tracks/"):
+                return HTTPResponse(status: 200, text: #"{"album":{"uri":"\#(FakeSpotifyWeb.albumURI)"}}"#)
             case "GET /v1/me/player/devices":
                 let list = s.devices.map { d in
                     "{\"id\":\(d.id.map { "\"\($0)\"" } ?? "null"),\"name\":\"\(d.name)\",\"type\":\"\(d.type)\","
@@ -80,6 +84,7 @@ final class FakeSpotifyWeb: HTTPRequesting, Sendable {
             case "PUT /v1/me/player/play":
                 if let json = try? JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any] {
                     s.uri = (json["uris"] as? [String])?.first
+                        ?? ((json["offset"] as? [String: Any])?["uri"] as? String)   // album-context play
                     s.basePositionMs = json["position_ms"] as? Int ?? 0
                     s.movingSince = ContinuousClock.now.advanced(by: loadDelay)
                 } else {

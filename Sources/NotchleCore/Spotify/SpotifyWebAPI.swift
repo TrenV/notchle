@@ -33,8 +33,22 @@ public actor SpotifyWebAPI {
         _ = try await send(SpotifyPlayerAPI.transfer(deviceID: deviceID))
     }
 
+    /// Plays the track inside its album (see `SpotifyPlayerAPI.play`). The album uri is looked up
+    /// once per track and cached; if the lookup fails it falls back to a bare `uris` play.
     public func play(_ trackURI: String, positionMs: Int, on deviceID: String) async throws {
-        _ = try await send(SpotifyPlayerAPI.play(deviceID: deviceID, trackURI: trackURI, positionMs: positionMs))
+        let context = try? await albumURI(forTrack: trackURI)
+        _ = try await send(SpotifyPlayerAPI.play(deviceID: deviceID, trackURI: trackURI, positionMs: positionMs,
+                                                 contextURI: context ?? nil))
+    }
+
+    private var albumCache: [String: String] = [:]
+
+    public func albumURI(forTrack trackURI: String) async throws -> String? {
+        if let cached = albumCache[trackURI] { return cached }
+        guard let id = trackURI.split(separator: ":").last.map(String.init), trackURI.hasPrefix("spotify:track:") else { return nil }
+        let album = SpotifyPlayerAPI.parseAlbumURI(try await send(SpotifyPlayerAPI.track(id: id)).body)
+        if let album { albumCache[trackURI] = album }
+        return album
     }
 
     public func seek(positionMs: Int, on deviceID: String?) async throws {
