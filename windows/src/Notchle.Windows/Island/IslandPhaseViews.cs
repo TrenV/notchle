@@ -74,11 +74,11 @@ internal abstract class PhaseView : DockPanel
         _ => throw new ArgumentOutOfRangeException(nameof(screen), screen, null),
     };
 
-    protected static TextBlock Wrapping(string text, double size, Brush brush, int maxLines)
+    /// Wraps within <paramref name="maxLines"/> (shrinking a little first), then keeps wrapping:
+    /// no height cap, the island grows instead.
+    protected static FitText Wrapping(string text, double size, Brush brush, int maxLines)
     {
-        var t = Ui.Text(text, size, brush);
-        t.TextWrapping = TextWrapping.Wrap;
-        t.MaxHeight = Math.Ceiling(size * 1.36 * maxLines);
+        var t = Ui.Fit(text, size, brush, maxLines);
         t.VerticalAlignment = VerticalAlignment.Top;
         return t;
     }
@@ -89,9 +89,9 @@ internal abstract class PhaseView : DockPanel
 internal sealed class SourceEntryView : PhaseView
 {
     private readonly IslandContext _ctx;
-    private readonly TextBlock _heading = Ui.Text("", 15, IslandTheme.Primary, FontWeights.SemiBold);
-    private readonly TextBlock _subheading;
-    private readonly StackPanel _message;
+    private readonly FitText _heading = Ui.Fit("", 15, IslandTheme.Primary, IslandTextFit.DefaultLines, FontWeights.SemiBold);
+    private readonly FitText _subheading;
+    private readonly DockPanel _message;
     private readonly TextBlock _messageText = Ui.Text("", 11, IslandTheme.RedBrush, FontWeights.Medium);
     private readonly FrameworkElement _messageIcon = Icons.ErrorCircle(IslandTheme.RedBrush, 11);
 
@@ -101,8 +101,8 @@ internal sealed class SourceEntryView : PhaseView
         _subheading = Wrapping("", 11.5, IslandTheme.Secondary, 2);
         Top(_heading);
         Top(_subheading, 3);
-        _message = Ui.Row(5, _messageIcon, _messageText);
-        _message.Height = 16;
+        _message = Ui.Leading(5, _messageIcon, _messageText);
+        _message.MinHeight = 16;
         Bottom(_message, 8);
         var field = new DockPanel { LastChildFill = true };
         var load = new IslandButton(IslandScreen.SourceEntry.LoadLabel, KeyHints.Enter, IslandButton.Kind.Primary, () =>
@@ -158,6 +158,7 @@ internal sealed class LoadingView : PhaseView
         var text = Ui.Text(screen.Text, 13, IslandTheme.Secondary, FontWeights.Medium);
         text.Margin = new Thickness(0, 12, 0, 0);
         text.HorizontalAlignment = HorizontalAlignment.Center;
+        text.TextAlignment = TextAlignment.Center;
         stack.Children.Add(text);
         Fill(stack);
     }
@@ -184,7 +185,7 @@ internal sealed class GuessView : PhaseView
         _ctx = ctx;
         // ↺ replays the snippet at the same tier; the typed text and focus stay where they are.
         var replay = RestartButton.Create(IslandScreen.Guess.RestartLabel, ctx);
-        Top(Ui.Bar(Ui.Row(8, _eq, _question, _status), Ui.Row(6, replay, _dots), 22));
+        Top(Ui.Bar(Ui.Leading(8, Ui.Row(8, _eq, _question), _status), Ui.Row(6, replay, _dots), 22));
         Top(_bar, 9);
         var fields = new Grid();
         fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -261,7 +262,7 @@ internal sealed class WrongView : PhaseView
         var dots = new AttemptDotsView();
         dots.Update(screen.Attempts);
         var replay = RestartButton.Create(IslandScreen.Guess.RestartLabel, ctx);
-        Top(Ui.Bar(Ui.Row(8, Icons.CrossOctagon(IslandTheme.RedBrush), Ui.Text(screen.Headline, 12.5, IslandTheme.Primary, FontWeights.SemiBold)), Ui.Row(6, replay, dots), 22));
+        Top(Ui.Bar(Ui.Leading(8, Icons.CrossOctagon(IslandTheme.RedBrush), Ui.Text(screen.Headline, 12.5, IslandTheme.Primary, FontWeights.SemiBold)), Ui.Row(6, replay, dots), 22));
         var chips = new Grid();
         chips.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         chips.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
@@ -298,15 +299,16 @@ internal sealed class AnswerView : PhaseView
         var icon = screen.Correct ? Icons.CheckSeal(IslandTheme.GreenBrush) : Icons.Eye(IslandTheme.Secondary);
         // ↺ restarts the whole song from 0:00; the answer stays on screen.
         var restart = RestartButton.Create(IslandScreen.Answer.RestartLabel, ctx);
-        Top(Ui.Bar(Ui.Row(6, icon, headline), Ui.Row(8, restart, _eq), 22));
+        Top(Ui.Bar(Ui.Leading(6, icon, headline), Ui.Row(8, restart, _eq), 22));
         // Cover left of title / artists. Without one (not resolved, offline) it collapses and
         // the texts sit where they always did.
         _ctx = ctx;
         _cover = new CoverImage(64, 8, shadow: true) { Margin = new Thickness(0, 0, 12, 0) };
         _coverTrackId = ctx.Session.State.CurrentTrack?.Id ?? "";
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        texts.Children.Add(Ui.Text(screen.Title, 19, IslandTheme.Primary, FontWeights.Bold));
-        var artists = Ui.Text(screen.Artists, 13, IslandTheme.Secondary, FontWeights.Medium);
+        // Long titles wrap (3 lines), then shrink a little, then the island grows: never "…".
+        texts.Children.Add(Ui.Fit(screen.Title, 19, IslandTheme.Primary, IslandTextFit.AnswerTitleLines, FontWeights.Bold));
+        var artists = Ui.Fit(screen.Artists, 13, IslandTheme.Secondary, IslandTextFit.AnswerArtistLines, FontWeights.Medium);
         artists.Margin = new Thickness(0, 2, 0, 0);
         texts.Children.Add(artists);
         var row = new DockPanel { LastChildFill = true };
@@ -316,7 +318,7 @@ internal sealed class AnswerView : PhaseView
         Top(row, 10);
         ShowCover(animate: false);
         UIElement? hint = screen.PreviewHint is { } h
-            ? Ui.Row(5, Icons.Info(IslandTheme.Tertiary, 11), Ui.Text(h, 11, IslandTheme.Tertiary, FontWeights.Medium))
+            ? Ui.Leading(5, Icons.Info(IslandTheme.Tertiary, 11), Ui.Text(h, 11, IslandTheme.Tertiary, FontWeights.Medium))
             : null;
         Bottom(Ui.Bar(hint, new IslandButton(IslandScreen.Answer.NextLabel, KeyHints.Enter, IslandButton.Kind.Primary,
             () => ctx.Send(new GameAction.Next())), 26));
@@ -395,7 +397,8 @@ internal sealed class SetEndView : PhaseView
         _screen = screen;
         // Choices along the bottom, primary (Enter) on the right. Only the primary draws its key
         // hint (three hints do not fit the island's width); the others carry theirs as a tooltip.
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        // A WrapPanel: long labels move a button to a second line instead of running off the island.
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var ordered = new[] { screen.Tertiary, screen.Secondary, screen.Primary };
         foreach (var option in ordered)
         {
@@ -405,7 +408,7 @@ internal sealed class SetEndView : PhaseView
             var button = new IslandButton(option.Label, option.KeyHint,
                 primary ? IslandButton.Kind.Primary : option.Choice == SetChoice.Replay ? IslandButton.Kind.Secondary : IslandButton.Kind.Quiet,
                 () => ctx.Send(new GameAction.StartSet(choice)))
-            { Margin = new Thickness(buttons.Children.Count == 0 ? 0 : 8, 0, 0, 0), ShowsHint = primary, ToolTip = option.KeyHint };
+            { Margin = new Thickness(buttons.Children.Count == 0 ? 0 : 8, 2, 0, 2), ShowsHint = primary, ToolTip = option.KeyHint };
             buttons.Children.Add(button);
         }
         Bottom(Ui.Bar(null, buttons, 26), 8);
@@ -423,7 +426,7 @@ internal sealed class SetEndView : PhaseView
         top.Children.Add(ring);
 
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        texts.Children.Add(Ui.Text(screen.Headline, 16, screen.Complete ? IslandTheme.GreenBrush : IslandTheme.Primary, FontWeights.Bold));
+        texts.Children.Add(Ui.Fit(screen.Headline, 16, screen.Complete ? IslandTheme.GreenBrush : IslandTheme.Primary, IslandTextFit.DefaultLines, FontWeights.Bold));
         var body = Wrapping(screen.Body, 12, IslandTheme.Secondary, 2);
         body.Margin = new Thickness(0, 4, 0, 0);
         texts.Children.Add(body);
@@ -444,7 +447,7 @@ internal sealed class ErrorView : PhaseView
     {
         _screen = screen;
         var texts = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-        texts.Children.Add(Ui.Text(IslandScreen.Error.Heading, 14, IslandTheme.Primary, FontWeights.SemiBold));
+        texts.Children.Add(Ui.Fit(IslandScreen.Error.Heading, 14, IslandTheme.Primary, IslandTextFit.DefaultLines, FontWeights.SemiBold));
         var message = Wrapping(screen.Message, 12, IslandTheme.Secondary, 3);
         message.Margin = new Thickness(0, 3, 0, 0);
         texts.Children.Add(message);
@@ -471,7 +474,7 @@ internal sealed class SettingsView : PhaseView
 {
     private readonly TextBlock _nowUsing = Ui.Text("", 11, IslandTheme.Tertiary, FontWeights.Medium);
     private readonly TextBlock _snippets = Ui.Text("", 12, IslandTheme.Frozen(Colors.White, 0.85), FontWeights.SemiBold);
-    private readonly TextBlock _hint;
+    private readonly FitText _hint;
     private readonly (Border Segment, TextBlock Label, PlayerMode Mode)[] _segments;
 
     public SettingsView(IslandContext ctx)
@@ -490,7 +493,7 @@ internal sealed class SettingsView : PhaseView
                 var label = Ui.Text(x.Item2, 11.5, IslandTheme.Secondary, FontWeights.SemiBold);
                 var segment = new Border
                 {
-                    CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 10, 0), Height = 22,
+                    CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 2, 10, 2), MinHeight = 22,
                     Child = label, Cursor = Cursors.Hand, Background = IslandTheme.Transparent,
                 };
                 var mode = x.Item1;

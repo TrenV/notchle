@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -13,17 +14,42 @@ namespace Notchle.Windows.Island;
 
 internal static class Ui
 {
-    public static TextBlock Text(string text, double size, Brush brush, FontWeight? weight = null) => new()
+    /// A text that wraps when its box is too narrow; never trimmed with an ellipsis (nothing in
+    /// the island is cut off). Give it a bounded width (a DockPanel slot, see <see cref="Leading"/>)
+    /// so it can wrap.
+    public static TextBlock Text(string text, double size, Brush brush, FontWeight? weight = null) =>
+        Style(new TextBlock(), text, size, brush, weight);
+
+    /// A text that wraps up to <paramref name="maxLines"/> lines, then shrinks its font a little
+    /// (IslandTextFit), then keeps wrapping; the island grows to fit it.
+    public static FitText Fit(string text, double size, Brush brush, int maxLines, FontWeight? weight = null) =>
+        new(Style(new TextBlock(), text, size, brush, weight), maxLines);
+
+    private static T Style<T>(T t, string text, double size, Brush brush, FontWeight? weight) where T : TextBlock
     {
-        Text = text,
-        FontFamily = IslandTheme.Font,
-        FontSize = size,
-        FontWeight = weight ?? FontWeights.Normal,
-        Foreground = brush,
-        TextTrimming = TextTrimming.CharacterEllipsis,
-        VerticalAlignment = VerticalAlignment.Center,
-        SnapsToDevicePixels = true,
-    };
+        t.Text = text;
+        t.FontFamily = IslandTheme.Font;
+        t.FontSize = size;
+        t.FontWeight = weight ?? FontWeights.Normal;
+        t.Foreground = brush;
+        t.TextTrimming = TextTrimming.None;
+        t.TextWrapping = TextWrapping.Wrap;
+        t.VerticalAlignment = VerticalAlignment.Center;
+        t.SnapsToDevicePixels = true;
+        return t;
+    }
+
+    /// "icon  text": the icon on the left, the text taking (and wrapping in) the rest of the width.
+    /// Unlike <see cref="Row"/> (a StackPanel, unbounded width) the text cannot run past the edge.
+    public static DockPanel Leading(double spacing, UIElement lead, FrameworkElement text)
+    {
+        var panel = new DockPanel { LastChildFill = true, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(lead, Dock.Left);
+        panel.Children.Add(lead);
+        text.Margin = new Thickness(spacing, text.Margin.Top, text.Margin.Right, text.Margin.Bottom);
+        panel.Children.Add(text);
+        return panel;
+    }
 
     public static StackPanel Row(double spacing, params UIElement[] children)
     {
@@ -37,9 +63,10 @@ internal static class Ui
     }
 
     /// DockPanel whose last child fills; handy for "leading ... spacer ... trailing" rows.
+    /// <paramref name="height"/> is a minimum: the bar grows when a text in it wraps.
     public static DockPanel Bar(UIElement? leading, UIElement? trailing, double height)
     {
-        var bar = new DockPanel { Height = height, LastChildFill = true };
+        var bar = new DockPanel { MinHeight = height, LastChildFill = true };
         if (trailing is not null) { DockPanel.SetDock(trailing, Dock.Right); bar.Children.Add(trailing); }
         if (leading is not null) { DockPanel.SetDock(leading, Dock.Left); bar.Children.Add(leading); }
         bar.Children.Add(new Border());
@@ -72,7 +99,7 @@ internal sealed class IslandButton : Border
     {
         _kind = kind;
         Click = onClick;
-        Height = 26;
+        MinHeight = 26;
         CornerRadius = new CornerRadius(13);
         Padding = new Thickness(kind == Kind.Quiet ? 0 : 12, 0, kind == Kind.Quiet ? 0 : 12, 0);
         Background = kind switch
@@ -88,6 +115,7 @@ internal sealed class IslandButton : Border
             _ => IslandTheme.Secondary,
         };
         _label = Ui.Text(label, 12, fg, FontWeights.SemiBold);
+        _label.Margin = new Thickness(0, 4, 0, 4);
         _hint = Ui.Text(hint ?? "", 10, fg, FontWeights.SemiBold);
         _hint.Opacity = 0.55;
         _hint.Visibility = hint is null ? Visibility.Collapsed : Visibility.Visible;
@@ -625,17 +653,20 @@ internal sealed class VerdictChipView : Border
         var tint = chip.Correct ? IslandTheme.Green : IslandTheme.Red;
         Background = IslandTheme.Frozen(tint, 0.1);
         CornerRadius = new CornerRadius(10);
-        Height = 40;
-        Padding = new Thickness(10, 0, 10, 0);
-        var label = Ui.Row(4, Ui.Text(chip.Label, 10, IslandTheme.Secondary, FontWeights.SemiBold));
-        if (chip.Hint is { } hint) label.Children.Add(new TextBlock
+        // A minimum: a long typed guess wraps and the chip grows.
+        MinHeight = 40;
+        Padding = new Thickness(10, 5, 10, 5);
+        var label = new WrapPanel { Orientation = Orientation.Horizontal };
+        label.Children.Add(Ui.Text(chip.Label, 10, IslandTheme.Secondary, FontWeights.SemiBold));
+        if (chip.Hint is { } hint)
         {
-            Text = $"· {hint}", FontFamily = IslandTheme.Font, FontSize = 10, FontWeight = FontWeights.SemiBold,
-            Foreground = IslandTheme.RedBrush, Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-        });
-        var guess = Ui.Text(chip.Guess.Length == 0 ? "–" : chip.Guess, 12, chip.Correct ? IslandTheme.Primary : IslandTheme.Frozen(Colors.White, 0.7), FontWeights.Medium);
+            var hintText = Ui.Text($"· {hint}", 10, IslandTheme.RedBrush, FontWeights.SemiBold);
+            hintText.Margin = new Thickness(4, 0, 0, 0);
+            label.Children.Add(hintText);
+        }
+        var guess = Ui.Fit(chip.Guess.Length == 0 ? "–" : chip.Guess, 12, chip.Correct ? IslandTheme.Primary : IslandTheme.Frozen(Colors.White, 0.7), IslandTextFit.DefaultLines, FontWeights.Medium);
         if (!chip.Correct)
-            guess.TextDecorations = new TextDecorationCollection
+            guess.Block.TextDecorations = new TextDecorationCollection
             {
                 new TextDecoration(TextDecorationLocation.Strikethrough, new Pen(IslandTheme.Frozen(IslandTheme.Red, 0.7), 1), 0,
                     TextDecorationUnit.FontRecommended, TextDecorationUnit.FontRecommended),
@@ -649,5 +680,73 @@ internal sealed class VerdictChipView : Border
         dock.Children.Add(icon);
         dock.Children.Add(texts);
         Child = dock;
+    }
+}
+
+/// A wrapping text that first shrinks its font (never below IslandTextFit.MinimumSize) to stay
+/// within <see cref="MaxLines"/> lines of the width it is given; past that it keeps wrapping.
+/// A decorator around a plain TextBlock (TextBlock's own MeasureOverride is sealed): the fit
+/// is worked out for the width the layout offers, then the text measures at that size.
+internal sealed class FitText : Decorator
+{
+    public FitText(TextBlock block, int maxLines)
+    {
+        Block = block;
+        DesignSize = block.FontSize;
+        MaxLines = maxLines;
+        VerticalAlignment = block.VerticalAlignment;
+        Child = block;
+    }
+
+    public TextBlock Block { get; }
+    public double DesignSize { get; }
+    public int MaxLines { get; }
+
+    public string Text
+    {
+        get => Block.Text;
+        set
+        {
+            if (Block.Text == value) return;
+            Block.Text = value;
+            InvalidateMeasure(); // re-fit for the new text
+        }
+    }
+
+    public TextAlignment TextAlignment { get => Block.TextAlignment; set => Block.TextAlignment = value; }
+
+    protected override Size MeasureOverride(Size constraint)
+    {
+        var width = constraint.Width;
+        var size = !double.IsInfinity(width) && width > 0 && !string.IsNullOrEmpty(Block.Text)
+            ? IslandTextFit.FontSize(DesignSize, MaxLines, s => LinesAt(s, width))
+            : DesignSize;
+        if (Math.Abs(Block.FontSize - size) > 0.001) Block.FontSize = size;
+        Block.Measure(constraint);
+        return Block.DesiredSize;
+    }
+
+    protected override Size ArrangeOverride(Size arrangeSize)
+    {
+        Block.Arrange(new Rect(arrangeSize));
+        return arrangeSize;
+    }
+
+    /// Lines the text wraps to at <paramref name="size"/> in <paramref name="width"/> DIPs.
+    internal int LinesAt(double size, double width)
+    {
+        var all = Formatted(Block.Text, size, width);
+        var one = Formatted("Xg", size, double.PositiveInfinity);
+        return Math.Max(1, (int)Math.Round(all.Height / one.Height));
+    }
+
+    internal FormattedText Formatted(string text, double size, double width)
+    {
+        var ft = new FormattedText(text, CultureInfo.CurrentUICulture, Block.FlowDirection,
+            new Typeface(Block.FontFamily, Block.FontStyle, Block.FontWeight, Block.FontStretch), size, Brushes.Black, null,
+            TextOptions.GetTextFormattingMode(Block), VisualTreeHelper.GetDpi(Block).PixelsPerDip)
+        { Trimming = TextTrimming.None };
+        if (!double.IsInfinity(width)) ft.MaxTextWidth = Math.Max(1, width - Block.Margin.Left - Block.Margin.Right);
+        return ft;
     }
 }

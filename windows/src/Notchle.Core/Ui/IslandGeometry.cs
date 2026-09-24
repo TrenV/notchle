@@ -33,21 +33,36 @@ public static class IslandGeometry
 {
     public static readonly DipSize LipSize = new(170, 8);
     public static readonly DipSize CompactSize = new(230, 34);
-    public static readonly DipSize ExpandedSize = new(460, 190);
+    /// The open island at its smallest; it grows taller (never wider) when its content needs it.
+    public static DipSize ExpandedSize => new(460, 190);
+    /// The tallest the open island gets: long titles wrap and the island grows up to this; a
+    /// longer History list scrolls inside it.
+    public const double MaxExpandedHeight = 420;
     /// Room around the expanded shape for the accent glow.
     public const double GlowMargin = 40;
-    public static readonly DipSize WindowSize = new(ExpandedSize.Width + 2 * GlowMargin, ExpandedSize.Height + GlowMargin);
+    /// The window is a fixed transparent canvas sized for the tallest island; only the shape
+    /// takes the mouse, so the extra height is click-through.
+    public static DipSize WindowSize => new(ExpandedSize.Width + 2 * GlowMargin, MaxExpandedHeight + GlowMargin);
     /// Hover slack around the shape so the edge does not flicker.
     public const double HoverSlack = 6;
     /// A slim lip is hard to hit: give it a taller hover band.
     public const double LipHoverHeight = 14;
 
-    public static DipSize ShapeSize(IslandMode mode) => mode switch
+    public static DipSize ShapeSize(IslandMode mode) => ShapeSize(mode, ExpandedSize.Height);
+
+    /// <paramref name="expandedHeight"/>: what the open content measured (see <see cref="ExpandedHeight"/>).
+    public static DipSize ShapeSize(IslandMode mode, double expandedHeight) => mode switch
     {
         IslandMode.Lip => LipSize,
         IslandMode.Compact => CompactSize,
-        _ => ExpandedSize,
+        _ => new(ExpandedSize.Width, ExpandedHeight(expandedHeight)),
     };
+
+    /// Height of the open island for content that wants <paramref name="contentHeight"/> DIPs:
+    /// never below the design height, never above <see cref="MaxExpandedHeight"/>, whole DIPs.
+    public static double ExpandedHeight(double contentHeight) =>
+        double.IsNaN(contentHeight) ? ExpandedSize.Height
+            : Math.Clamp(Math.Ceiling(contentHeight - 0.01), ExpandedSize.Height, MaxExpandedHeight);
 
     public static double BottomRadius(IslandMode mode) => mode switch
     {
@@ -87,9 +102,13 @@ public static class IslandGeometry
 
     /// Is the window-DIP point over the shape (slack included)? The bottom corners are rounded;
     /// everything above y = 0 counts (the pointer pressed against the top edge).
-    public static bool ShapeContains(IslandMode mode, DipPoint p, double slack = HoverSlack)
+    public static bool ShapeContains(IslandMode mode, DipPoint p, double slack = HoverSlack) =>
+        ShapeContains(mode, ExpandedSize.Height, p, slack);
+
+    /// Same, for an open island that grew to <paramref name="expandedHeight"/>.
+    public static bool ShapeContains(IslandMode mode, double expandedHeight, DipPoint p, double slack = HoverSlack)
     {
-        var size = ShapeSize(mode);
+        var size = ShapeSize(mode, expandedHeight);
         var height = mode == IslandMode.Lip ? Math.Max(size.Height, LipHoverHeight) : size.Height;
         return RoundedBottomContains(size.Width, height, BottomRadius(mode), p, slack);
     }

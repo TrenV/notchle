@@ -83,6 +83,8 @@ public sealed class IslandWindow : Window
         Session.StateDidChange(null, vm.State);
         _animator = new IslandAnimator(Session.Mode);
         _view.Update(_animator.Current, DateTimeOffset.UtcNow, _reduceMotion);
+        _animator.SetTarget(Session.Mode, _view.ExpandedHeight);
+        _animator.Snap();
 
         vm.PropertyChanged += OnViewModelChanged;
         Session.Behavior.Changed += OnBehaviorChanged;
@@ -336,13 +338,14 @@ public sealed class IslandWindow : Window
         {
             var rect = IslandNative.WindowRectPx(_hwnd);
             var scale = rect.Width > 0 ? rect.Width / IslandGeometry.WindowSize.Width : 1;
-            inside = IslandGeometry.ShapeContains(Session.Mode, IslandGeometry.ToWindowDip(cursor, rect, scale));
+            inside = IslandGeometry.ShapeContains(Session.Mode, _view.ExpandedHeight, IslandGeometry.ToWindowDip(cursor, rect, scale));
         }
         SetClickThrough(!inside);
         Session.Behavior.PointerMoved(inside);
         Session.Behavior.Tick();
 
-        _animator.SetTarget(Session.Mode);
+        // The open island grows with its content (long titles wrap): shape and hit-testing follow.
+        _animator.SetTarget(Session.Mode, _view.ExpandedHeight);
         var settled = _animator.IsSettled;
         var indicator = Session.Indicator();
         var live = LiveAnimation();

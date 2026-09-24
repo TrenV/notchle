@@ -29,8 +29,9 @@ internal sealed class IslandView : Grid
     private readonly Path _border;
     private readonly Canvas _content;
     private readonly CollapsedPill _collapsed;
-    private readonly Grid _expanded;
-    private readonly TextBlock _headerTitle = Ui.Text("", 11, IslandTheme.Secondary, FontWeights.SemiBold);
+    private readonly ExpandedHost _expanded;
+    /// The playlist name: wraps (two lines, then a little smaller) instead of being cut.
+    private readonly FitText _headerTitle = Ui.Fit("", 11, IslandTheme.Secondary, IslandTextFit.DefaultLines, FontWeights.SemiBold);
     private readonly TextBlock _headerProgress = Ui.Text("", 11, IslandTheme.Secondary, FontWeights.SemiBold);
     private readonly Border _gear;
     private readonly QuitButton _quit;
@@ -81,8 +82,8 @@ internal sealed class IslandView : Grid
         _content.Children.Add(_collapsed);
         Canvas.SetLeft(_collapsed, (Width - IslandGeometry.CompactSize.Width) / 2);
 
-        _expanded = new Grid { Width = IslandGeometry.ExpandedSize.Width, Height = IslandGeometry.ExpandedSize.Height };
-        _expanded.RowDefinitions.Add(new RowDefinition { Height = new GridLength(HeaderHeight) });
+        _expanded = new ExpandedHost { Width = IslandGeometry.ExpandedSize.Width, VerticalAlignment = VerticalAlignment.Top };
+        _expanded.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto, MinHeight = HeaderHeight });
         _expanded.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _gear = new Border
         {
@@ -111,7 +112,10 @@ internal sealed class IslandView : Grid
             _session.ShowTab(tab);
             Changed?.Invoke();
         });
-        var header = Ui.Bar(Ui.Row(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), Ui.Row(8, _tabs, _quit, _headerProgress, _gear), HeaderHeight);
+        var trailing = Ui.Row(8, _tabs, _quit, _headerProgress, _gear);
+        trailing.Margin = new Thickness(8, 0, 0, 0);
+        _headerTitle.Margin = new Thickness(0, 4, 0, 4);
+        var header = Ui.Bar(Ui.Leading(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), trailing, HeaderHeight);
         header.Margin = new Thickness(ContentPadding - 2, 0, ContentPadding - 6, 0);
         _expanded.Children.Add(header);
         _body = new Border { Margin = new Thickness(ContentPadding, 4, ContentPadding, 16) };
@@ -133,6 +137,11 @@ internal sealed class IslandView : Grid
     /// A click inside changed session state: the window re-renders and re-evaluates.
     public event Action? Changed;
     public IslandFrame Frame { get; private set; }
+    /// How tall the open island is for its current content (IslandGeometry.ExpandedHeight of
+    /// what it measured); the window springs the shape to this.
+    public double ExpandedHeight => _expanded.IslandHeight;
+    /// The expanded content (tests).
+    internal FrameworkElement Expanded => _expanded;
 
     public void SetAccent(Color accent)
     {
@@ -194,6 +203,9 @@ internal sealed class IslandView : Grid
             _body.Child = _phaseView;
         }
         _phaseView.Update(screen, now, seconds);
+        // Canvas children get an unbounded height: this is the same measure the layout pass
+        // does (a no-op when nothing changed), so ExpandedHeight is current right away.
+        _expanded.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
     }
 
     /// Text boxes of the current phase, for focus handling.
@@ -332,5 +344,21 @@ internal sealed class CollapsedPill : Grid
                 _spinner.Update(seconds);
                 break;
         }
+    }
+}
+
+/// The open island's content grid: measures what its content wants at the island's width, then
+/// lays it out at IslandGeometry.ExpandedHeight of that (never below the design height, so the
+/// bottom buttons stay at the bottom; capped, so a long History list scrolls).
+internal sealed class ExpandedHost : Grid
+{
+    public double IslandHeight { get; private set; } = IslandGeometry.ExpandedSize.Height;
+
+    protected override Size MeasureOverride(Size constraint)
+    {
+        var natural = base.MeasureOverride(new Size(constraint.Width, double.PositiveInfinity));
+        IslandHeight = IslandGeometry.ExpandedHeight(natural.Height);
+        var fitted = base.MeasureOverride(new Size(constraint.Width, IslandHeight));
+        return new Size(fitted.Width, IslandHeight);
     }
 }

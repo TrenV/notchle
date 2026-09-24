@@ -98,10 +98,19 @@ internal sealed class HistoryView : PhaseView
         if (screen.Stats is { } stats)
         {
             var correct = Ui.Text(stats.Correct, 12, IslandTheme.GreenBrush, FontWeights.SemiBold);
-            Top(Ui.Row(14, correct,
-                Ui.Text(stats.Accuracy, 12, IslandTheme.Primary, FontWeights.SemiBold),
-                Ui.Text(stats.AverageTries, 11.5, IslandTheme.Secondary, FontWeights.Medium),
-                Ui.Text(stats.BestStreak, 11.5, IslandTheme.Secondary, FontWeights.Medium)));
+            // Wraps onto a second line rather than running off the island.
+            var statsRow = new WrapPanel { Orientation = Orientation.Horizontal };
+            foreach (var item in new[]
+                     {
+                         correct, Ui.Text(stats.Accuracy, 12, IslandTheme.Primary, FontWeights.SemiBold),
+                         Ui.Text(stats.AverageTries, 11.5, IslandTheme.Secondary, FontWeights.Medium),
+                         Ui.Text(stats.BestStreak, 11.5, IslandTheme.Secondary, FontWeights.Medium),
+                     })
+            {
+                item.Margin = new Thickness(0, 0, 14, 0);
+                statsRow.Children.Add(item);
+            }
+            Top(statsRow);
         }
 
         UIElement? note = screen.HiddenNote is { } n ? Ui.Text(n, 10.5, IslandTheme.Tertiary, FontWeights.Medium) : null;
@@ -154,7 +163,7 @@ internal sealed class HistoryView : PhaseView
 
         var badge = new Border
         {
-            CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1, 7, 1), Height = 17,
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1, 7, 1), MinHeight = 17,
             VerticalAlignment = VerticalAlignment.Center,
             Background = row.Correct ? IslandTheme.Frozen(IslandTheme.Green, 0.18) : IslandTheme.Frozen(IslandTheme.Red, 0.16),
             Child = Ui.Text(row.Badge, 10.5, row.Correct ? IslandTheme.GreenBrush : IslandTheme.RedBrush, FontWeights.SemiBold),
@@ -173,13 +182,14 @@ internal sealed class HistoryView : PhaseView
         Count(FluentIcons.Wrong, row.WrongGuesses, row.WrongGuesses == 1 ? "wrong guess" : "wrong guesses");
         trailing.Children.Add(badge);
 
-        var title = Ui.Text($"{row.Title} — {row.Artists}", 12, IslandTheme.Primary, FontWeights.SemiBold);
+        var title = Ui.Fit($"{row.Title} — {row.Artists}", 12, IslandTheme.Primary, IslandTextFit.HistoryTitleLines, FontWeights.SemiBold);
         var detail = Ui.Text(row.Listing.Length > 0 ? $"{row.Listing} · {row.When}" : row.When, 10.5, IslandTheme.Tertiary, FontWeights.Medium);
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         texts.Children.Add(title);
         texts.Children.Add(detail);
 
-        var panel = new DockPanel { LastChildFill = true, Height = 34 };
+        // A minimum: a two-line title (or a long listing name) makes the row taller.
+        var panel = new DockPanel { LastChildFill = true, MinHeight = 34, Margin = new Thickness(0, 1, 0, 1) };
         DockPanel.SetDock(cover, Dock.Left);
         panel.Children.Add(cover);
         DockPanel.SetDock(trailing, Dock.Right);
