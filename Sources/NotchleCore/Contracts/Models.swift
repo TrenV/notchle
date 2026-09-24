@@ -9,7 +9,7 @@ public struct Track: Sendable, Hashable, Codable, Identifiable {
     /// `spotify:track:<id>`, what the Spotify desktop app plays.
     public let uri: String
     public let title: String
-    /// All credited artists, in credit order. Any one of them counts as a correct artist guess.
+    /// All credited artists, in credit order. A correct artist guess names every one of them.
     public let artists: [String]
     public let durationMs: Int
     /// ~30s preview clip, used by the preview fallback player. Not every track has one.

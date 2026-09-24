@@ -7,7 +7,8 @@ import Foundation
 // Agreed rules (Tren, 2026-09-24):
 // - Heardle-style tiers: snippet of 5s, a wrong guess offers a retry at 10s, then 15s.
 //   A wrong guess at the last tier (or giving up) reveals the answer: that track is missed.
-// - A guess needs both title and artist; any one credited artist is enough.
+// - A guess needs both title and artists: every credited artist, in any order. Typos are
+//   forgiven as long as the gist is right (Tren, 2026-09-24; see FuzzyAnswerJudge).
 // - Correct: confetti, and the song keeps playing. `next` moves on.
 // - 20/20 in a set: `nextSet` moves to 20 unplayed tracks from the same listing.
 //   Anything less: `replaySet` replays the same 20, reshuffled.
