@@ -15,7 +15,16 @@ public sealed record Track(
     string Title,
     IReadOnlyList<string> Artists,
     int DurationMs,
-    Uri? PreviewUrl);
+    Uri? PreviewUrl)
+{
+    // Value equality over the artist list, like the Swift struct (records compare lists by reference).
+    public bool Equals(Track? other) =>
+        other is not null && Id == other.Id && Uri == other.Uri && Title == other.Title
+        && DurationMs == other.DurationMs && Equals(PreviewUrl, other.PreviewUrl)
+        && Artists.SequenceEqual(other.Artists);
+
+    public override int GetHashCode() => HashCode.Combine(Id, Uri, Title, DurationMs, Artists.Count);
+}
 
 public enum SourceKind { Playlist, Album, Artist }
 
@@ -46,6 +55,14 @@ public abstract record TrackOutcome
 
 public sealed record GameConfig(IReadOnlyList<double> Tiers, int SetSize = 20, double SnippetStart = 0)
 {
+    // Value equality over the tiers, like the Swift struct: a config loaded from JSON must equal
+    // the same config built in code.
+    public bool Equals(GameConfig? other) =>
+        other is not null && SetSize == other.SetSize && SnippetStart == other.SnippetStart
+        && Tiers.SequenceEqual(other.Tiers);
+
+    public override int GetHashCode() => HashCode.Combine(SetSize, SnippetStart, Tiers.Count);
+
     /// Agreed defaults: 5, 10, 15 seconds; sets of 20; snippets from the start of the song.
     public static GameConfig Default { get; } = new(new[] { 5.0, 10.0, 15.0 });
 }

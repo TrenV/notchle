@@ -21,3 +21,20 @@ public static class Fixtures
         System.IO.Path.GetFullPath(System.IO.Path.Combine(
             System.IO.Path.GetDirectoryName(here)!, "..", "..", "..", "Tests", "NotchleCoreTests", "Fixtures", name));
 }
+
+public class ContractEqualityTests
+{
+    [Fact]
+    public void GameConfigComparesTiersByValue() =>
+        Assert.Equal(GameConfig.Default, new GameConfig(new List<double> { 5, 10, 15 }));
+
+    [Fact]
+    public void GameConfigWithDifferentTiersDiffers() =>
+        Assert.NotEqual(GameConfig.Default, new GameConfig(new[] { 5.0, 10.0 }));
+
+    [Fact]
+    public void TrackComparesArtistsByValue() =>
+        Assert.Equal(
+            new Track("a", "spotify:track:a", "T", new[] { "X", "Y" }, 1, null),
+            new Track("a", "spotify:track:a", "T", new List<string> { "X", "Y" }, 1, null));
+}
