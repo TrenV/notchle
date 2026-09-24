@@ -300,6 +300,63 @@ public class AppSpotifyWebPlayerTests
     }
 
     [Fact]
+    public async Task RestartPlaysTheTrackFromZeroOnThisPcAndLeavesItPlaying()
+    {
+        var (player, spotify, clock, _) = Make();
+        await player.PlaySnippetAsync(T1, 30, 5, CancellationToken.None);
+        var before = spotify.Requests.Count;
+
+        await player.RestartTrackAsync(T1);
+
+        Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player", "PUT /v1/me/player/play?device_id=pc" },
+            spotify.Requests.Skip(before));
+        Assert.Equal("""{"device_ids":["pc"],"play":false}""", spotify.Bodies[before + 1]);
+        Assert.Equal("""{"uris":["spotify:track:t1"],"position_ms":0}""", spotify.Bodies[before + 2]);
+        Assert.True(spotify.IsPlaying);
+
+        // The song keeps playing: no pause is sent later, however long it plays.
+        await clock.DelayAsync(TimeSpan.FromSeconds(60), CancellationToken.None);
+        Assert.DoesNotContain(spotify.Requests.Skip(before), r => r.Contains("/pause"));
+        Assert.True(spotify.IsPlaying);
+    }
+
+    [Fact]
+    public async Task RestartSkipsTheTransferWhenThisPcIsAlreadyActive()
+    {
+        var (player, spotify, _, _) = Make();
+        spotify.DevicesJson = """{"devices":[{"id":"pc","name":"GAMING-PC","type":"Computer","is_active":true,"is_restricted":false}]}""";
+
+        await player.RestartTrackAsync(T1);
+
+        Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player/play?device_id=pc" }, spotify.Requests);
+        Assert.True(spotify.IsPlaying);
+    }
+
+    /// A snippet cancelled for the restart winds down after the restart already started: its
+    /// cleanup pause must not stop the restarted song (the generation guard).
+    [Fact]
+    public async Task CancelledSnippetsLatePauseDoesNotStopTheRestart()
+    {
+        var (player, spotify, clock, _) = Make();
+        using var cts = new CancellationTokenSource();
+        Task? restart = null;
+        clock.OnAdvance = now =>
+        {
+            if (restart is not null || now < TimeSpan.FromSeconds(2)) return;
+            cts.Cancel();
+            restart = player.RestartTrackAsync(T1);
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => player.PlaySnippetAsync(T1, 0, 15, cts.Token));
+        await restart!;
+
+        var restartPlay = spotify.Bodies.FindLastIndex(b => b == """{"uris":["spotify:track:t1"],"position_ms":0}""");
+        Assert.True(restartPlay > 2, "the restart's play request was sent");
+        Assert.DoesNotContain(spotify.Requests.Skip(restartPlay), r => r.Contains("/pause"));
+        Assert.True(spotify.IsPlaying);
+    }
+
+    [Fact]
     public async Task ExpiredAccessTokenIsRefreshedOnceAndStored()
     {
         var (player, spotify, _, tokens) = Make(accessToken: "stale");

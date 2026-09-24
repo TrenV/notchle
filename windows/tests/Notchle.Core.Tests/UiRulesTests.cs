@@ -46,6 +46,65 @@ public class UiRulesTests
     }
 
     [Fact]
+    public void CtrlShiftRRestartsWhereverTheButtonShows()
+    {
+        GamePhase[] shown = [new GamePhase.PlayingSnippet(0), new GamePhase.Guessing(1), new GamePhase.Correct(0), new GamePhase.Revealed(null)];
+        foreach (var p in shown)
+        {
+            Assert.True(IslandRules.ShowsRestart(p));
+            Assert.Equal(new Restart(), Key(IslandKey.CtrlShiftR, p));
+        }
+        foreach (var p in UiFixtures.AllPhases.Where(p => !shown.Any(s => s.GetType() == p.GetType())))
+        {
+            Assert.False(IslandRules.ShowsRestart(p));
+            Assert.Null(Key(IslandKey.CtrlShiftR, p));
+        }
+        Assert.Null(Key(IslandKey.CtrlShiftR, new GamePhase.Wrong(1, new Verdict(false, false))));
+        Assert.Null(Key(IslandKey.CtrlShiftR, new GamePhase.Guessing(0), IslandField.Title, settings: true));
+        // Ctrl+R is still Retry, and only that.
+        Assert.Null(Key(IslandKey.CtrlR, new GamePhase.Guessing(0)));
+    }
+
+    [Fact]
+    public void CtrlShiftSSkipsOnlyWhileALongerTierIsLeft()
+    {
+        var skip = new Send(new GameAction.Skip());
+        Assert.Equal(skip, Key(IslandKey.CtrlShiftS, new GamePhase.PlayingSnippet(0)));
+        Assert.Equal(skip, Key(IslandKey.CtrlShiftS, new GamePhase.Guessing(1)));
+        Assert.Null(Key(IslandKey.CtrlShiftS, new GamePhase.Guessing(2)));        // last tier: Give up only
+        Assert.Null(Key(IslandKey.CtrlShiftS, new GamePhase.PlayingSnippet(2)));
+        foreach (var p in UiFixtures.AllPhases.Where(p => p is not (GamePhase.PlayingSnippet or GamePhase.Guessing)))
+            Assert.Null(Key(IslandKey.CtrlShiftS, p));
+        Assert.Null(Key(IslandKey.CtrlShiftS, new GamePhase.Guessing(0), IslandField.Title, settings: true));
+        // The configured tiers decide what "last" is.
+        var two = new GameConfig([5, 10]);
+        Assert.Null(IslandRules.Command(IslandKey.CtrlShiftS, new GamePhase.Guessing(1), null, false, two));
+        Assert.Equal(skip, IslandRules.Command(IslandKey.CtrlShiftS, new GamePhase.Guessing(1), null, false, GameConfig.Default));
+    }
+
+    [Fact]
+    public void SkipLabelNamesTheNextTier()
+    {
+        var c = GameConfig.Default;
+        Assert.Equal("Skip · 10s", IslandRules.SkipLabel(new GamePhase.PlayingSnippet(0), c));
+        Assert.Equal("Skip · 15s", IslandRules.SkipLabel(new GamePhase.Guessing(1), c));
+        Assert.Null(IslandRules.SkipLabel(new GamePhase.Guessing(2), c));
+        Assert.Null(IslandRules.SkipLabel(new GamePhase.Wrong(0, new Verdict(false, false)), c));
+        Assert.Equal("Skip · 2.5s", IslandRules.SkipLabel(new GamePhase.Guessing(0), new GameConfig([1, 2.5])));
+    }
+
+    [Fact]
+    public void RestartTooltipFollowsThePhase()
+    {
+        Assert.Equal("Replay snippet", IslandRules.RestartLabel(new GamePhase.PlayingSnippet(2)));
+        Assert.Equal("Replay snippet", IslandRules.RestartLabel(new GamePhase.Guessing(0)));
+        Assert.Equal("Restart song", IslandRules.RestartLabel(new GamePhase.Correct(1)));
+        Assert.Equal("Restart song", IslandRules.RestartLabel(new GamePhase.Revealed(new Verdict(false, true))));
+        Assert.Null(IslandRules.RestartLabel(new GamePhase.Wrong(0, new Verdict(true, false))));
+        Assert.Null(IslandRules.RestartLabel(new GamePhase.Idle()));
+    }
+
+    [Fact]
     public void TabMovesBetweenTitleAndArtist()
     {
         var p = new GamePhase.Guessing(0);
@@ -63,6 +122,13 @@ public class UiRulesTests
         Assert.Equal(IslandKey.Tab, IslandKeys.FromVirtualKey(0x09, false, false, false));
         Assert.Equal(IslandKey.BackTab, IslandKeys.FromVirtualKey(0x09, false, false, true));
         Assert.Equal(IslandKey.CtrlR, IslandKeys.FromVirtualKey(0x52, true, false, false));
+        Assert.Equal(IslandKey.CtrlShiftR, IslandKeys.FromVirtualKey(0x52, true, false, true));
+        Assert.Null(IslandKeys.FromVirtualKey(0x52, false, false, true));    // typing "R"
+        Assert.Null(IslandKeys.FromVirtualKey(0x52, true, true, true));      // Ctrl+Alt+Shift+R
+        Assert.Equal(IslandKey.CtrlShiftS, IslandKeys.FromVirtualKey(0x53, true, false, true));
+        Assert.Null(IslandKeys.FromVirtualKey(0x53, true, false, false));    // Ctrl+S
+        Assert.Null(IslandKeys.FromVirtualKey(0x53, false, false, true));    // typing "S"
+        Assert.Null(IslandKeys.FromVirtualKey(0x53, true, true, true));      // AltGr+Shift+S
         Assert.Null(IslandKeys.FromVirtualKey(0x52, false, false, false));   // typing "r"
         Assert.Null(IslandKeys.FromVirtualKey(0x52, true, true, false));     // Ctrl+Alt+R (AltGr)
         Assert.Null(IslandKeys.FromVirtualKey(0x0D, false, false, true));    // Shift+Enter
@@ -86,6 +152,16 @@ public class UiRulesTests
             IslandRules.FieldTransitionFor(new GamePhase.Wrong(1, new Verdict(false, true)), new GamePhase.PlayingSnippet(2)));
         Assert.Equal(FieldTransitionKind.FocusUrl, IslandRules.FieldTransitionFor(null, new GamePhase.Idle()).Kind);
         Assert.Equal(FieldTransition.None, IslandRules.FieldTransitionFor(new GamePhase.Guessing(0), new GamePhase.Guessing(0)));
+        // A skip is the same track at the next tier: keep text and focus.
+        Assert.Equal(FieldTransition.None,
+            IslandRules.FieldTransitionFor(new GamePhase.PlayingSnippet(0), new GamePhase.PlayingSnippet(1)));
+        Assert.Equal(FieldTransition.None,
+            IslandRules.FieldTransitionFor(new GamePhase.Guessing(1), new GamePhase.PlayingSnippet(2)));
+        // A replay (Restart from Guessing) is the same track at the same tier: keep everything.
+        Assert.Equal(FieldTransition.None,
+            IslandRules.FieldTransitionFor(new GamePhase.Guessing(0), new GamePhase.PlayingSnippet(0)));
+        Assert.Equal(FieldTransition.None,
+            IslandRules.FieldTransitionFor(new GamePhase.Guessing(2), new GamePhase.PlayingSnippet(2)));
     }
 
     [Fact]

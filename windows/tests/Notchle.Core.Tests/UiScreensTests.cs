@@ -33,6 +33,19 @@ public class UiScreensTests
     }
 
     [Fact]
+    public void GuessScreenOffersSkipUntilTheLastTierAndShowsSkippedAttemptsAsUsed()
+    {
+        var t0 = Assert.IsType<IslandScreen.Guess>(Build(new GamePhase.PlayingSnippet(0)));
+        Assert.Equal("Skip · 10s", t0.SkipLabel);
+        var t1 = Assert.IsType<IslandScreen.Guess>(Build(new GamePhase.PlayingSnippet(1))); // after a skip
+        Assert.Equal("Skip · 15s", t1.SkipLabel);
+        Assert.Equal([AttemptState.Missed, AttemptState.Current, AttemptState.Later], t1.Attempts.Select(a => a.State));
+        var t2 = Assert.IsType<IslandScreen.Guess>(Build(new GamePhase.Guessing(2)));
+        Assert.Null(t2.SkipLabel);
+        Assert.Equal([AttemptState.Missed, AttemptState.Missed, AttemptState.Current], t2.Attempts.Select(a => a.State));
+    }
+
+    [Fact]
     public void WrongCopy()
     {
         var half = Assert.IsType<IslandScreen.Wrong>(Build(new GamePhase.Wrong(0, new Verdict(true, false)), title: "T", artist: "A"));

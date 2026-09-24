@@ -14,6 +14,9 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
     public bool PlaysFullTrack => true;
     public Exception? SnippetError { get; set; }
     public double? CompleteSnippetAfterSeconds { get; set; }
+    /// The snippet runs to its end even when cancelled, so it returns normally after the
+    /// operation was superseded (a late, stale result).
+    public bool IgnoreCancellation { get; set; }
 
     public IReadOnlyList<string> Log { get { lock (_gate) return _log.ToList(); } }
     private void Append(string entry) { lock (_gate) _log.Add(entry); }
@@ -24,7 +27,8 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
         if (SnippetError is { } error) throw error;
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(CompleteSnippetAfterSeconds ?? seconds), cancellationToken);
+            await Task.Delay(TimeSpan.FromSeconds(CompleteSnippetAfterSeconds ?? seconds),
+                IgnoreCancellation ? CancellationToken.None : cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -38,6 +42,12 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
     public Task ContinuePlayingAsync(CancellationToken cancellationToken = default)
     {
         Append("continue");
+        return Task.CompletedTask;
+    }
+
+    public Task RestartTrackAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        Append($"restart:{track.Id}");
         return Task.CompletedTask;
     }
 
@@ -141,6 +151,68 @@ public class AppCoordinatorTests
         await h.Coordinator.DrainAsync();
 
         Assert.Equal(new[] { "snippet:t1", "paused:t1", "continue" }, player.Log);
+    }
+
+    /// A restart while a snippet plays: the snippet is cancelled and its (slow) pause lands
+    /// before the song starts over; nothing pauses after the restart.
+    [Fact]
+    public async Task RestartWaitsForCancelledSnippetToPauseAndNothingPausesAfter()
+    {
+        var player = new AppRecordingPlayer(pauseLatency: TimeSpan.FromMilliseconds(150));
+        var h = new Harness(_ => player);
+
+        h.Coordinator.RunForTesting(new GameEffect.PlaySnippet(T1, 0, 30));
+        await WaitUntil(() => player.Log.Contains("snippet:t1"));
+        h.Coordinator.RunForTesting(new GameEffect.RestartTrack(T1));
+        await h.Coordinator.DrainAsync();
+        await Task.Delay(200); // a stray pause arriving late would show up here
+
+        Assert.Equal(new[] { "snippet:t1", "paused:t1", "restart:t1" }, player.Log);
+        Assert.Empty(h.ActionsOf<GameAction.SnippetFinished>());
+        Assert.Empty(h.ActionsOf<GameAction.PlaybackFailed>());
+    }
+
+    /// End to end through the engine: Restart in Correct restarts the song on the player.
+    [Fact]
+    public async Task RestartInCorrectRestartsTheSongOnThePlayer()
+    {
+        var source = new AppGatedSource();
+        var player = new AppRecordingPlayer { CompleteSnippetAfterSeconds = 0.01 };
+        var h = new Harness(_ => player, source);
+
+        h.Coordinator.Send(new GameAction.Load(Ref1));
+        await WaitUntil(() => source.Calls.Count == 1);
+        source.Calls.Single().Result.SetResult(new SourceListing(Ref1, "one", new[] { T1 }));
+        await h.Coordinator.DrainAsync();
+        h.Coordinator.Send(new GameAction.Submit(new Guess("x", "y")));
+        Assert.IsType<GamePhase.Correct>(h.Coordinator.State.Phase);
+        h.Coordinator.Send(new GameAction.Restart());
+        await h.Coordinator.DrainAsync();
+
+        Assert.Equal(new[] { "stop", "snippet:t1", "finished:t1", "continue", "restart:t1" }, player.Log);
+        Assert.IsType<GamePhase.Correct>(h.Coordinator.State.Phase);
+    }
+
+    /// Skip mid-snippet while the skipped snippet still completes normally: its SnippetFinished
+    /// is stale and must not reach the engine (it would end the new tier early).
+    [Fact]
+    public async Task SkippedSnippetsLateFinishIsDropped()
+    {
+        var source = new AppGatedSource();
+        var player = new AppRecordingPlayer { CompleteSnippetAfterSeconds = 0.15, IgnoreCancellation = true };
+        var h = new Harness(_ => player, source);
+
+        h.Coordinator.Send(new GameAction.Load(Ref1));
+        await WaitUntil(() => source.Calls.Count == 1);
+        source.Calls.Single().Result.SetResult(new SourceListing(Ref1, "one", new[] { T1 }));
+        await WaitUntil(() => player.Log.Contains("snippet:t1"));
+        h.Coordinator.Send(new GameAction.Skip());
+        Assert.Equal(new GamePhase.PlayingSnippet(1), h.Coordinator.State.Phase);
+        await h.Coordinator.DrainAsync();
+
+        Assert.Equal(new[] { "stop", "snippet:t1", "finished:t1", "snippet:t1", "finished:t1" }, player.Log);
+        Assert.Single(h.ActionsOf<GameAction.SnippetFinished>()); // only the tier-1 snippet's
+        Assert.Equal(new GamePhase.Guessing(1), h.Coordinator.State.Phase);
     }
 
     [Fact]

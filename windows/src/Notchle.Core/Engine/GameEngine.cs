@@ -64,6 +64,26 @@ public sealed class GameEngine
                 var nextTier = wrong.TierIndex + 1;
                 return nextTier < Tiers.Count ? PlaySnippet(nextTier) : None;
 
+            // Replaying the snippet keeps the tier and records nothing; SnippetStart and the tier
+            // length are re-read, so a Configure since the snippet started applies here too. A
+            // tier that no longer exists (tiers shrank) is ignored, as Retry does.
+            case GameAction.Restart when phase is GamePhase.PlayingSnippet playing && playing.TierIndex < Tiers.Count:
+                return PlaySnippet(playing.TierIndex);
+
+            case GameAction.Restart when phase is GamePhase.Guessing guessing && guessing.TierIndex < Tiers.Count:
+                return PlaySnippet(guessing.TierIndex);
+
+            case GameAction.Restart when phase is GamePhase.Correct or GamePhase.Revealed:
+                return State.CurrentTrack is { } track ? [new GameEffect.RestartTrack(track)] : None;
+
+            // Skip spends this attempt: the next tier plays, nothing is recorded (the outcome is
+            // recorded once, when the track is won or lost). No longer tier left: GiveUp.
+            case GameAction.Skip when phase is GamePhase.PlayingSnippet or GamePhase.Guessing:
+            {
+                var tier = phase is GamePhase.PlayingSnippet p ? p.TierIndex : ((GamePhase.Guessing)phase).TierIndex;
+                return tier + 1 < Tiers.Count ? PlaySnippet(tier + 1) : Reveal(_lastVerdict);
+            }
+
             case GameAction.GiveUp when phase is GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Wrong:
                 return Reveal(_lastVerdict);
 

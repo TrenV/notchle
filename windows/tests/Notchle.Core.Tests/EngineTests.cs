@@ -228,6 +228,249 @@ public class EngineTests
     }
 
     [Fact]
+    public void RestartWhilePlayingReplaysTheSameTierFromTheStart()
+    {
+        var e = Engine(config: new GameConfig([5, 10, 15], 20, 7));
+        var track = e.State.CurrentTrack!;
+        e.Send(WrongGuess);
+        e.Send(new Retry()); // PlayingSnippet(1)
+        var results = e.State.Results;
+
+        Assert.Equal([new Effect.PlaySnippet(track, 7, 10)], e.Send(new Restart()));
+        Assert.Equal(new Phase.PlayingSnippet(1), e.State.Phase);
+        Assert.Same(results, e.State.Results);
+        Assert.Equal(0, e.State.Index);
+    }
+
+    [Fact]
+    public void RestartWhileGuessingReplaysWithoutUsingAnAttempt()
+    {
+        var e = Engine();
+        var track = e.State.CurrentTrack!;
+        e.Send(new SnippetFinished());
+        Assert.Equal(new Phase.Guessing(0), e.State.Phase);
+
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 5)], e.Send(new Restart()));
+        Assert.Equal(new Phase.PlayingSnippet(0), e.State.Phase);
+        Assert.Empty(e.State.Results);
+        Assert.Equal(0, e.State.Index);
+
+        // As often as you like: still tier 0, still nothing recorded.
+        e.Send(new SnippetFinished());
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 5)], e.Send(new Restart()));
+        Assert.Equal(new Phase.PlayingSnippet(0), e.State.Phase);
+        Assert.Empty(e.State.Results);
+
+        // The replayed snippet finishing goes to Guessing at the same tier, and a wrong guess
+        // still offers the 10 s retry: the replays cost nothing.
+        e.Send(new SnippetFinished());
+        Assert.Equal(new Phase.Guessing(0), e.State.Phase);
+        e.Send(WrongGuess);
+        Assert.Equal(new Phase.Wrong(0, WrongVerdict), e.State.Phase);
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 10)], e.Send(new Retry()));
+    }
+
+    /// The cancelled snippet's SnippetFinished can't reach the engine (the coordinator drops
+    /// results of cancelled operations), but if one arrived it would only end the replay early:
+    /// same tier, nothing recorded, and the next one is ignored.
+    [Fact]
+    public void StaleSnippetFinishedAfterRestartStaysAtTheSameTier()
+    {
+        var e = Engine();
+        e.Send(new SnippetFinished());
+        e.Send(new Restart());
+        Assert.Empty(e.Send(new SnippetFinished()));
+        Assert.Equal(new Phase.Guessing(0), e.State.Phase);
+        var guessing = e.State;
+        Assert.Empty(e.Send(new SnippetFinished()));
+        Assert.Same(guessing, e.State);
+        Assert.Empty(e.State.Results);
+    }
+
+    [Fact]
+    public void RestartInCorrectOrRevealedRestartsTheSongAndKeepsThePhase()
+    {
+        var e = Engine();
+        var track = e.State.CurrentTrack!;
+        e.Send(Right(track));
+        var correct = e.State;
+        Assert.Equal([new Effect.RestartTrack(track)], e.Send(new Restart()));
+        Assert.Same(correct, e.State);
+        Assert.Equal(1, e.State.CelebrationCount); // no second celebration
+
+        e.Send(new Next());
+        var next = e.State.CurrentTrack!;
+        e.Send(new GiveUp());
+        var revealed = e.State;
+        Assert.Equal([new Effect.RestartTrack(next)], e.Send(new Restart()));
+        Assert.Same(revealed, e.State);
+        Assert.Equal([new TrackOutcome.Correct(0), new TrackOutcome.Missed()], e.State.Results);
+    }
+
+    [Fact]
+    public void RestartIsIgnoredInWrongAndEveryOtherPhase()
+    {
+        void AssertIgnored(GameEngine engine)
+        {
+            var before = engine.State;
+            Assert.Empty(engine.Send(new Restart()));
+            Assert.Same(before, engine.State);
+        }
+
+        AssertIgnored(Fresh()); // Idle
+        var loading = Fresh();
+        loading.Send(new Load(Ref));
+        AssertIgnored(loading);
+
+        var wrong = Engine();
+        wrong.Send(WrongGuess);
+        AssertIgnored(wrong); // a replay here would be a free guess at the same tier
+
+        var error = Engine();
+        error.Send(new PlaybackFailed("x"));
+        AssertIgnored(error);
+
+        var complete = Engine(tracks: 20);
+        PlaySet(complete);
+        AssertIgnored(complete);
+
+        var failed = Engine(tracks: 20);
+        PlaySet(failed, missing: 0);
+        AssertIgnored(failed);
+
+        AssertIgnored(Engine(tracks: 10, cleared: Listing(10).Tracks.Select(t => t.Id).ToHashSet())); // Exhausted
+
+        var shrunk = Engine();
+        shrunk.Send(WrongGuess);
+        shrunk.Send(new Retry());
+        shrunk.Send(new SnippetFinished()); // Guessing(1)
+        shrunk.Send(new Configure(new GameConfig([5])));
+        AssertIgnored(shrunk); // that tier is gone
+    }
+
+    [Fact]
+    public void SkipWhilePlayingPlaysTheNextTierAndRecordsNothing()
+    {
+        var e = Engine(config: new GameConfig([5, 10, 15], 20, 7));
+        var track = e.State.CurrentTrack!;
+        Assert.Equal([new Effect.PlaySnippet(track, 7, 10)], e.Send(new Skip()));
+        Assert.Equal(new Phase.PlayingSnippet(1), e.State.Phase);
+        Assert.Empty(e.State.Results);
+        Assert.Equal(0, e.State.Index);
+    }
+
+    [Fact]
+    public void SkipWhileGuessingPlaysTheNextTier()
+    {
+        var e = Engine();
+        var track = e.State.CurrentTrack!;
+        e.Send(new SnippetFinished());
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 10)], e.Send(new Skip()));
+        Assert.Equal(new Phase.PlayingSnippet(1), e.State.Phase);
+        Assert.Empty(e.State.Results);
+    }
+
+    [Fact]
+    public void SkipFiveSkipTenThenCorrectAtFifteen()
+    {
+        var e = Engine();
+        var track = e.State.CurrentTrack!;
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 10)], e.Send(new Skip()));  // mid-snippet
+        e.Send(new SnippetFinished());
+        Assert.Equal(new Phase.Guessing(1), e.State.Phase);
+        Assert.Equal([new Effect.PlaySnippet(track, 0, 15)], e.Send(new Skip()));  // after it
+        Assert.Equal(new Phase.PlayingSnippet(2), e.State.Phase);
+        Assert.Equal([new Effect.ContinuePlaying()], e.Send(Right(track)));
+        Assert.Equal(new Phase.Correct(2), e.State.Phase);
+        Assert.Equal([new TrackOutcome.Correct(2)], e.State.Results);
+        Assert.Equal(1, e.State.CelebrationCount);
+    }
+
+    [Fact]
+    public void SkipAtTheLastTierIsGiveUp()
+    {
+        var e = Engine();
+        e.Send(new Skip());
+        e.Send(new Skip()); // PlayingSnippet(2)
+        Assert.Equal([new Effect.ContinuePlaying()], e.Send(new Skip()));
+        Assert.Equal(new Phase.Revealed(null), e.State.Phase);
+        Assert.Equal([new TrackOutcome.Missed()], e.State.Results);
+
+        // Exactly GiveUp, also after a wrong guess earlier on this track: same state, same effects.
+        GameEngine AtLastTierAfterAWrongGuess()
+        {
+            var x = Engine();
+            x.Send(WrongGuess);
+            x.Send(new Retry());
+            x.Send(new Skip()); // PlayingSnippet(2)
+            x.Send(new SnippetFinished());
+            return x;
+        }
+        var skipped = AtLastTierAfterAWrongGuess();
+        var gaveUp = AtLastTierAfterAWrongGuess();
+        Assert.Equal(gaveUp.Send(new GiveUp()), skipped.Send(new Skip()));
+        Assert.Equal(gaveUp.State.Phase, skipped.State.Phase);
+        Assert.Equal(new Phase.Revealed(WrongVerdict), skipped.State.Phase);
+        Assert.Equal(gaveUp.State.Results, skipped.State.Results);
+    }
+
+    /// The coordinator drops the skipped snippet's result (AppCoordinatorTests); in the engine
+    /// a SnippetFinished after a skip can only end the new tier, never go back, and one after a
+    /// skip-reveal is ignored.
+    [Fact]
+    public void SnippetFinishedAfterASkipNeverGoesBackATier()
+    {
+        var e = Engine();
+        e.Send(new Skip());
+        e.Send(new SnippetFinished());
+        Assert.Equal(new Phase.Guessing(1), e.State.Phase);
+        var guessing = e.State;
+        Assert.Empty(e.Send(new SnippetFinished()));
+        Assert.Same(guessing, e.State);
+
+        e.Send(new Skip());
+        e.Send(new Skip()); // revealed
+        var revealed = e.State;
+        Assert.Empty(e.Send(new SnippetFinished()));
+        Assert.Same(revealed, e.State);
+    }
+
+    [Fact]
+    public void SkipIsIgnoredOutsidePlayingAndGuessing()
+    {
+        void AssertIgnored(GameEngine engine)
+        {
+            var before = engine.State;
+            Assert.Empty(engine.Send(new Skip()));
+            Assert.Same(before, engine.State);
+        }
+
+        AssertIgnored(Fresh());
+        var loading = Fresh();
+        loading.Send(new Load(Ref));
+        AssertIgnored(loading);
+        var wrong = Engine();
+        wrong.Send(WrongGuess);
+        AssertIgnored(wrong); // Retry is the skip here
+        var correct = Engine();
+        correct.Send(Right(correct.State.CurrentTrack));
+        AssertIgnored(correct);
+        var revealed = Engine();
+        revealed.Send(new GiveUp());
+        AssertIgnored(revealed);
+        var error = Engine();
+        error.Send(new PlaybackFailed("x"));
+        AssertIgnored(error);
+        var complete = Engine(tracks: 20);
+        PlaySet(complete);
+        AssertIgnored(complete);
+        var failed = Engine(tracks: 20);
+        PlaySet(failed, missing: 0);
+        AssertIgnored(failed);
+        AssertIgnored(Engine(tracks: 10, cleared: Listing(10).Tracks.Select(t => t.Id).ToHashSet()));
+    }
+
+    [Fact]
     public void NoRepeatsAcrossSetsThenSmallerFinalSetThenExhausted()
     {
         var e = Engine(tracks: 45);

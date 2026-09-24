@@ -27,14 +27,14 @@ public class IslandSecrecyTests
         _ => new GamePhase.Wrong(1, new Verdict(true, false)),
     };
 
-    private static string TextOf(GamePhase phase, bool expanded)
+    private static string TextOf(GamePhase phase, bool expanded, bool quitArmed = false)
     {
         string joined = "";
         IslandSta.Run(() =>
         {
             var (root, _, _) = IslandSnapshots.Compose(new IslandSnapshots.Scenario("test", phase)
             {
-                Expanded = expanded, State = State(phase), Title = "Paper", Artist = "Kites",
+                Expanded = expanded, State = State(phase), Title = "Paper", Artist = "Kites", QuitArmed = quitArmed,
             });
             joined = string.Join(" | ", IslandSta.AllText(root));
         });
@@ -45,9 +45,9 @@ public class IslandSecrecyTests
     [MemberData(nameof(SecretPhases))]
     public void GuessPhasesNeverShowTheTrack(string name)
     {
-        foreach (var expanded in new[] { true, false })
+        foreach (var (expanded, quitArmed) in new[] { (true, false), (false, false), (true, true) })
         {
-            var text = TextOf(Phase(name), expanded);
+            var text = TextOf(Phase(name), expanded, quitArmed);
             // Control: the walk does read the island (header / pill text is there).
             Assert.Contains("1/1", text);
             foreach (var secret in new[] { "Zanzibar", "Quill", "Mabel" })

@@ -20,6 +20,16 @@ public class PlaybackPreviewPlayerTests
     }
 
     [Fact]
+    public async Task RestartOfTrackWithoutPreviewIsNoPreview()
+    {
+        using var player = new PreviewPlayer(volume: 0);
+        var track = new Track("t", "spotify:track:t", "x", new[] { "y" }, 1000, PreviewUrl: null);
+
+        var error = await Assert.ThrowsAsync<PlayerException>(() => player.RestartTrackAsync(track));
+        Assert.Equal(PlayerErrorKind.NoPreview, error.Kind);
+    }
+
+    [Fact]
     public void DescribesItself()
     {
         using var player = new PreviewPlayer();

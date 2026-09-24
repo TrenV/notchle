@@ -12,7 +12,13 @@ public sealed record AttemptPill(string Label, AttemptState State);
 /// ✓/✗ chip for one half of a verdict, with what the player typed.
 public sealed record VerdictChip(string Label, bool Correct, string Guess, string? Hint);
 
-public sealed record IslandHeader(string Title, string? Progress);
+public sealed record IslandHeader(string Title, string? Progress)
+{
+    /// Tooltip / accessible name of the quit-playlist button.
+    public const string QuitLabel = "Quit playlist";
+    /// The red capsule after the first press.
+    public const string QuitConfirmLabel = "Quit playlist?";
+}
 
 public abstract record IslandScreen
 {
@@ -26,13 +32,16 @@ public abstract record IslandScreen
 
     public sealed record Loading(string Text) : IslandScreen;
 
-    /// PlayingSnippet / Guessing. Never holds the track.
+    /// PlayingSnippet / Guessing. Never holds the track. <paramref name="SkipLabel"/>: "Skip · 10s",
+    /// null at the last tier (no Skip button there).
     public sealed record Guess(bool Playing, string Status, double Seconds, IReadOnlyList<AttemptPill> Attempts,
-        string ArtistPlaceholder) : IslandScreen
+        string ArtistPlaceholder, string? SkipLabel = null) : IslandScreen
     {
         public const string TitlePlaceholder = "Title";
         public const string GiveUpLabel = "Give up";
         public const string SubmitLabel = "Submit";
+        /// Tooltip of the ↺ button: the snippet again, same tier, no attempt used.
+        public const string RestartLabel = "Replay snippet";
     }
 
     /// Wrong. Never holds the track; the chips show what the player typed.
@@ -46,6 +55,8 @@ public abstract record IslandScreen
     public sealed record Answer(bool Correct, string Headline, string Title, string Artists, string? PreviewHint) : IslandScreen
     {
         public const string NextLabel = "Next";
+        /// Tooltip of the ↺ button: the whole song from 0:00.
+        public const string RestartLabel = "Restart song";
     }
 
     public sealed record SetEnd(bool Complete, int Correct, int Total, string Headline, string Body, string ButtonLabel) : IslandScreen;
@@ -74,6 +85,9 @@ public static class KeyHints
     public const string Enter = "Enter";
     public const string Esc = "Esc";
     public const string CtrlR = "Ctrl+R";
+    public const string CtrlShiftR = "Ctrl+Shift+R";
+    public const string CtrlShiftS = "Ctrl+Shift+S";
+    public const string CtrlN = "Ctrl+N";
     public const string Hotkey = "Ctrl+Alt+N";
 }
 
@@ -168,7 +182,8 @@ public static class IslandScreens
         return new IslandScreen.Guess(playing,
             playing ? $"Listening · {IslandRules.SecondsLabel(seconds)}" : "What's this song?",
             seconds, Attempts(state.Config, tier, currentMissed: false),
-            IslandRules.ArtistPlaceholder(IslandRules.ArtistCount(state)));
+            IslandRules.ArtistPlaceholder(IslandRules.ArtistCount(state)),
+            IslandRules.SkipLabel(state.Phase, state.Config));
     }
 
     /// Used tiers red, current white, later dim; in Wrong the current tier counts as missed.

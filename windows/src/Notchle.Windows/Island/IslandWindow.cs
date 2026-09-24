@@ -44,6 +44,8 @@ public sealed class IslandWindow : Window
     private bool _reduceMotion;
     private bool _dirty = true;
     private IslandIndicator? _lastIndicator;
+    /// The quit capsule as last drawn: it reverts by itself after 3 s, so redraw when that flips.
+    private bool _quitArmedShown;
     private int _appliedFocusToken = -1;
     /// Focus still has to land in a field (the expanded content may not be visible yet).
     private bool _focusPending;
@@ -335,6 +337,11 @@ public sealed class IslandWindow : Window
         var settled = _animator.IsSettled;
         var indicator = Session.Indicator();
         var live = LiveAnimation();
+        if (Session.QuitArmed != _quitArmedShown)
+        {
+            _quitArmedShown = Session.QuitArmed;
+            _dirty = true;
+        }
         if (_dirty || !settled || live || !Equals(indicator, _lastIndicator))
         {
             var frame = _animator.Update(dt, _reduceMotion);
