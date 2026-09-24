@@ -65,23 +65,129 @@ import NotchleCore
         #expect(ui.requestedFocus == .artist)
     }
 
-    @Test func expandsForInputAndCollapsesOnHoverEndOnlyWhenIdleOfInput() {
-        let (model, ui) = make(.loading)
-        var next = model.state
-        next.phase = .guessing(tierIndex: 0)
-        ui.stateDidChange(from: model.state, to: next)
-        model.state = next
-        #expect(ui.isExpanded)
-        ui.hoverChanged(true)
-        ui.hoverChanged(false)
-        #expect(ui.isExpanded)          // guessing needs input
+    // MARK: Auto-close
 
-        let (m2, ui2) = make(.playingSnippet(tierIndex: 0))
-        _ = m2
-        ui2.hoverChanged(true)
-        #expect(ui2.isExpanded)
-        ui2.hoverChanged(false)
-        #expect(!ui2.isExpanded)
+    let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)
+
+    @Test func phaseChangesNeverExpand() {
+        for phase in UIRulesTests.allPhases {
+            let (model, ui) = make(.loading)
+            var next = model.state
+            next.phase = phase
+            ui.stateDidChange(from: model.state, to: next, now: t0)
+            #expect(!ui.isExpanded, "\(phase)")
+        }
+    }
+
+    @Test func hoverExpandsAndLeavingCollapsesAfterTheGrace() {
+        let (_, ui) = make(.guessing(tierIndex: 0))
+        ui.hoverChanged(true, now: t0)
+        #expect(ui.isExpanded)
+        ui.hoverChanged(false, now: t0)
+        #expect(ui.autoCollapsePending)
+        #expect(!ui.evaluateAutoCollapse(now: t0.addingTimeInterval(0.3)))
+        #expect(ui.isExpanded)
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(0.45)))
+        #expect(!ui.isExpanded)
+        #expect(!ui.autoCollapsePending)
+    }
+
+    @Test func reenteringDuringTheGraceCancels() {
+        let (_, ui) = make(.correct(tierIndex: 0))
+        ui.hoverChanged(true, now: t0)
+        ui.hoverChanged(false, now: t0)
+        ui.hoverChanged(true, now: t0.addingTimeInterval(0.2))
+        #expect(!ui.evaluateAutoCollapse(now: t0.addingTimeInterval(5)))
+        #expect(ui.isExpanded)
+    }
+
+    @Test func typedTextKeepsItOpenUntilCleared() {
+        let (_, ui) = make(.guessing(tierIndex: 0))
+        ui.hoverChanged(true, now: t0)
+        ui.focusedField = .title
+        ui.titleText = "Pap"
+        ui.hoverChanged(false, now: t0)
+        #expect(!ui.evaluateAutoCollapse(now: t0.addingTimeInterval(30)))
+        #expect(ui.isExpanded)
+        ui.titleText = ""                    // cleared, and no key for > 2s
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(31)))
+    }
+
+    @Test func aRecentKeyKeepsAnEmptyFieldOpenForTwoSeconds() {
+        let (_, ui) = make(.idle)
+        ui.clicked()
+        ui.focusedField = .url
+        ui.hoverChanged(true, now: t0)
+        ui.hoverChanged(false, now: t0)
+        ui.noteKeyActivity(now: t0.addingTimeInterval(0.1))
+        #expect(!ui.evaluateAutoCollapse(now: t0.addingTimeInterval(1.5)))
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(2.2)))
+    }
+
+    @Test func focusWithoutTextOrKeysDoesNotCountAsTyping() {
+        let (_, ui) = make(.guessing(tierIndex: 0))
+        ui.hoverChanged(true, now: t0)
+        ui.focusedField = .title
+        ui.hoverChanged(false, now: t0)
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(0.5)))
+    }
+
+    @Test func submittingEndsTypingSoItCollapses() {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.hoverChanged(true, now: t0)
+        ui.focusedField = .artist
+        ui.titleText = "T"
+        ui.artistText = "A"
+        ui.hoverChanged(false, now: t0)
+        ui.noteKeyActivity(now: t0)          // the Return press
+        ui.submitGuess()
+        #expect(sent == [.submit(Guess(title: "T", artist: "A"))])
+        var next = model.state
+        next.phase = .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))
+        ui.stateDidChange(from: model.state, to: next, now: t0)
+        #expect(ui.focusedField == nil)      // the fields went away with the phase
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(0.5)))
+    }
+
+    @Test func clickExpands() {
+        let (_, ui) = make(.playingSnippet(tierIndex: 0))
+        ui.clicked()
+        #expect(ui.isExpanded)
+        #expect(!ui.autoCollapsePending)
+    }
+
+    @Test func typingIntoACollapsedPanelOpensItWhileTyping() {
+        let (_, ui) = make(.playingSnippet(tierIndex: 0))
+        ui.expandForTyping(now: t0)
+        #expect(ui.isExpanded)
+        #expect(ui.requestedFocus == .title)
+        ui.focusedField = .title
+        #expect(!ui.evaluateAutoCollapse(now: t0.addingTimeInterval(1)))   // key 1s ago
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(2.5)))  // idle, empty, mouse outside
+    }
+
+    @Test func collapseClosesSettings() {
+        let (_, ui) = make(.guessing(tierIndex: 0))
+        ui.hoverChanged(true, now: t0)
+        ui.showingSettings = true
+        ui.hoverChanged(false, now: t0)
+        #expect(ui.evaluateAutoCollapse(now: t0.addingTimeInterval(1)))
+        #expect(!ui.showingSettings)
+    }
+
+    @Test func correctFlashesThenPlaysOn() {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var next = model.state
+        next.phase = .correct(tierIndex: 0)
+        next.celebrationCount += 1
+        ui.stateDidChange(from: model.state, to: next, now: t0)
+        model.state = next
+        #expect(!ui.isExpanded)                       // collapsed…
+        #expect(ui.celebrationStart == t0)            // …but confetti still fires
+        #expect(ui.collapsedIndicator(now: t0.addingTimeInterval(0.5)).glyph == .correctFlash)
+        #expect(ui.collapsedIndicator(now: t0.addingTimeInterval(2)).glyph == .playing)
     }
 
     @Test func unsupportedLinkShowsAMessage() {

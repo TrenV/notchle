@@ -17,7 +17,7 @@ public final class NotchPanelController {
     public let ui: NotchUIState
     public private(set) var geometry: NotchGeometry?
 
-    /// How the panel takes the keyboard when a phase wants typing.
+    /// How the panel takes the keyboard when the notch is clicked. Phase changes never take it.
     ///
     /// Intended behaviour (Tren, 2026-09-24): typing starts only after a click on the notch,
     /// so Notchle never steals keystrokes from the app in front. Observed that way with
@@ -37,6 +37,7 @@ public final class NotchPanelController {
     private var lastState: GameState?
     private var monitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
+    private var collapseTimer: Timer?
 
     public init(model: NotchViewModel) {
         self.model = model
@@ -67,8 +68,6 @@ public final class NotchPanelController {
         self.panel = panel
         self.hosting = hosting
 
-        ui.onWantsKeyboard = { [weak self] in self?.takeKeyboard() }
-
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -77,7 +76,12 @@ public final class NotchPanelController {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.log("panel became key (app active: \(NSApp.isActive))") }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.log("panel became key (app active: \(NSApp.isActive))")
+                // SwiftUI only moves focus in a key window: apply the pending request now.
+                self.ui.requestFocus(self.ui.requestedFocus)
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: panel, queue: .main
@@ -90,7 +94,11 @@ public final class NotchPanelController {
             MainActor.assumeIsolated { [weak self] in self?.updateMouse(at: NSEvent.mouseLocation) }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: mouseEvents, handler: { event in
-            MainActor.assumeIsolated { [weak self] in self?.updateMouse(at: NSEvent.mouseLocation) }
+            let isClick = event.type == .leftMouseDown
+            MainActor.assumeIsolated { [weak self] in
+                self?.updateMouse(at: NSEvent.mouseLocation)
+                if isClick { self?.clickedShape(at: NSEvent.mouseLocation) }
+            }
             return event
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
@@ -154,7 +162,7 @@ public final class NotchPanelController {
 
     // MARK: Keyboard
 
-    /// Makes the panel key so the focused field takes typing without a click first.
+    /// Makes the panel key (on a click on the notch) and re-applies the focus request.
     public func takeKeyboard() {
         guard let panel else { return }
         panel.orderFrontRegardless()
@@ -179,8 +187,31 @@ public final class NotchPanelController {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        guard let panel, event.window === panel else { return false }
+        // Shortcuts only while the panel is key, i.e. after the player clicked the notch.
+        guard let panel, event.window === panel, panel.isKeyWindow else { return false }
+        ui.noteKeyActivity()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if !ui.isExpanded {
+            let key = Self.keyInput(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,
+                                    modifiers: flags)
+            switch NotchUIRules.collapsedKeyBehavior(key, phase: model.state.phase) {
+            case .ignore:
+                return true
+            case .expand:
+                ui.expandForTyping()
+                startCollapseTimerIfNeeded()
+                return true
+            case .expandAndReplay:
+                ui.expandForTyping()
+                startCollapseTimerIfNeeded()
+                // Replay the key once the field exists, so the first character is not lost.
+                nonisolated(unsafe) let replay = event
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { NSApp.postEvent(replay, atStart: true) }
+                return true
+            case .perform:
+                break
+            }
+        }
         if let selector = Self.editAction(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,
                                           modifiers: flags) {
             return NSApp.sendAction(selector, to: nil, from: panel)
@@ -234,5 +265,27 @@ public final class NotchPanelController {
         let inside = NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded).contains(point)
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         ui.hoverChanged(inside)
+        startCollapseTimerIfNeeded()
+    }
+
+    private func clickedShape(at point: NSPoint) {
+        guard let geometry, NotchMetrics.hoverFrame(geometry, expanded: ui.isExpanded).contains(point) else { return }
+        ui.clicked()
+        takeKeyboard()
+    }
+
+    /// Polls the pure auto-collapse rule while a collapse is pending (grace period or typing).
+    private func startCollapseTimerIfNeeded() {
+        guard ui.autoCollapsePending, collapseTimer == nil else { return }
+        collapseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.ui.evaluateAutoCollapse(now: Date())
+                if !self.ui.autoCollapsePending {
+                    self.collapseTimer?.invalidate()
+                    self.collapseTimer = nil
+                }
+            }
+        }
     }
 }

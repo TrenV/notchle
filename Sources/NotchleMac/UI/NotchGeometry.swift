@@ -61,7 +61,7 @@ public struct NotchGeometry: Sendable, Equatable {
 /// Fixed sizes of the notch UI.
 public enum NotchMetrics {
     /// Extra width on each side of the notch when collapsed (glyph left, progress right).
-    public static let collapsedWing: CGFloat = 44
+    public static let collapsedWing: CGFloat = 50
     public static let expandedSize = CGSize(width: 468, height: 178)
     /// The panel is larger than the expanded shape so confetti can fall out below it.
     /// Everything outside the visible shape lets clicks through.
