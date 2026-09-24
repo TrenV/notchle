@@ -55,7 +55,7 @@ import Testing
     @Test func aStalledPositionFailsAndPauses() async {
         let spotify = FakeSpotify { call, _, _ in call == .status ? S.status("playing", S.track.uri, 0.1) : .success("") }
         await #expect(throws: PlayerError.failed("Spotify stopped playing")) {
-            try await makePlayer(spotify).playSnippet(of: track, from: 0, seconds: 5)
+            try await makePlayer(spotify, timing: .fastTimeouts).playSnippet(of: track, from: 0, seconds: 5)
         }
         #expect(spotify.calls.last == .pause)
     }
@@ -120,7 +120,7 @@ import Testing
         }
         let started = ContinuousClock.now
         await #expect(throws: PlayerError.failed("Spotify didn't respond within 0.3 seconds after launching")) {
-            try await makePlayer(spotify).playSnippet(of: track, from: 0, seconds: 0.01)
+            try await makePlayer(spotify, timing: .fastTimeouts).playSnippet(of: track, from: 0, seconds: 0.01)
         }
         #expect((ContinuousClock.now - started).seconds >= 0.3)
         #expect(!spotify.calls.contains(.play))
@@ -173,7 +173,7 @@ import Testing
             call == .status ? S.status("playing", "spotify:track:somethingElse") : .success("")
         }
         await #expect(throws: PlayerError.failed("Spotify played a different track")) {
-            try await makePlayer(spotify).playSnippet(of: track, from: 0, seconds: 5)
+            try await makePlayer(spotify, timing: .fastTimeouts).playSnippet(of: track, from: 0, seconds: 5)
         }
         #expect(spotify.calls.last == .pause)
     }
@@ -192,7 +192,7 @@ import Testing
     @Test func neverStartingFailsAfterTheConfirmTimeout() async {
         let spotify = FakeSpotify { call, _, _ in call == .status ? S.status("paused") : .success("") }
         await #expect(throws: PlayerError.failed("Spotify didn't start playing the track")) {
-            try await makePlayer(spotify).playSnippet(of: track, from: 0, seconds: 5)
+            try await makePlayer(spotify, timing: .fastTimeouts).playSnippet(of: track, from: 0, seconds: 5)
         }
         #expect(spotify.calls.last == .pause)
     }

@@ -109,7 +109,16 @@ final class FakeAppControl: SpotifyAppControlling {
 
 extension SpotifyAppPlayer.Timing {
     /// Short timeouts so failure paths finish quickly.
+    /// Fast polling with generous deadlines: tests that expect success finish as soon as the
+    /// fake answers, and don't fail when other suites (the UI OCR tests) hog the main actor.
     static let fast = SpotifyAppPlayer.Timing(
+        launchTimeout: .seconds(10), launchPollInterval: .milliseconds(10),
+        confirmTimeout: .seconds(10), confirmPollInterval: .milliseconds(5),
+        positionTolerance: 1.0, audibleProgress: 0.05, reseekInterval: .zero,
+        endLead: 0.0, maxSleepSlice: 0.05, stallTimeout: .seconds(10))
+
+    /// Short deadlines, only for the tests that assert a timeout fires.
+    static let fastTimeouts = SpotifyAppPlayer.Timing(
         launchTimeout: .milliseconds(300), launchPollInterval: .milliseconds(10),
         confirmTimeout: .milliseconds(300), confirmPollInterval: .milliseconds(5),
         positionTolerance: 1.0, audibleProgress: 0.05, reseekInterval: .zero,
@@ -131,7 +140,7 @@ enum PlaybackTestSupport {
 
     /// Polls `condition` until true or `timeout` passes. Returns whether it became true.
     @MainActor
-    static func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool) async -> Bool {
+    static func waitUntil(timeout: Duration = .seconds(15), _ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while !condition() {
             if ContinuousClock.now >= deadline { return false }
