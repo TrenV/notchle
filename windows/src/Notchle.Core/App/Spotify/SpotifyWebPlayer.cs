@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using Notchle.Core.App.Playback;
 
@@ -20,6 +21,8 @@ public sealed class SpotifyWebPlayer : IPlayer
     private readonly Func<DateTimeOffset> _now;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private string? _deviceId;
+    /// Track uri -> album uri, so each track is looked up once.
+    private readonly ConcurrentDictionary<string, string> _albumCache = new();
     /// Bumped by every public operation, so a cancelled snippet's late cleanup can't pause a
     /// newer snippet or the song ContinuePlayingAsync just resumed.
     private int _generation;
@@ -57,7 +60,7 @@ public sealed class SpotifyWebPlayer : IPlayer
                 await SendAsync(() => SpotifyPlayerApi.Transfer(device.Id!), cancellationToken).ConfigureAwait(false);
             var startAt = SnippetTimer.ClampedStart(start, seconds, track.DurationMs > 0 ? track.DurationMs / 1000.0 : null);
             var startMs = (int)Math.Round(startAt * 1000);
-            await SendAsync(() => SpotifyPlayerApi.Play(device.Id!, track.Uri, startMs), cancellationToken).ConfigureAwait(false);
+            await PlayAsync(device.Id!, track.Uri, startMs, cancellationToken).ConfigureAwait(false);
 
             Task<PlaybackSample> Sample(CancellationToken ct) => SampleAsync(track.Uri, ct);
             await SnippetTimer.WaitUntilAudioAdvancesAsync(Sample, startAt, _timing, _clock, "Spotify", cancellationToken,
@@ -91,7 +94,7 @@ public sealed class SpotifyWebPlayer : IPlayer
         _deviceId = device.Id!;
         if (!device.IsActive)
             await SendAsync(() => SpotifyPlayerApi.Transfer(device.Id!), cancellationToken).ConfigureAwait(false);
-        await SendAsync(() => SpotifyPlayerApi.Play(device.Id!, track.Uri, 0), cancellationToken).ConfigureAwait(false);
+        await PlayAsync(device.Id!, track.Uri, 0, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task StopAsync()
@@ -101,6 +104,27 @@ public sealed class SpotifyWebPlayer : IPlayer
     }
 
     // MARK: - Internals
+
+    /// Plays the track inside its album (see `SpotifyPlayerApi.Play`). If the album lookup fails
+    /// it falls back to a bare `uris` play.
+    private async Task PlayAsync(string deviceId, string trackUri, int positionMs, CancellationToken ct)
+    {
+        string? context;
+        try { context = await AlbumUriAsync(trackUri, ct).ConfigureAwait(false); }
+        catch (PlayerException) { context = null; }
+        await SendAsync(() => SpotifyPlayerApi.Play(deviceId, trackUri, positionMs, context), ct).ConfigureAwait(false);
+    }
+
+    public async Task<string?> AlbumUriAsync(string trackUri, CancellationToken ct = default)
+    {
+        if (_albumCache.TryGetValue(trackUri, out var cached)) return cached;
+        const string prefix = "spotify:track:";
+        if (!trackUri.StartsWith(prefix, StringComparison.Ordinal) || trackUri.Length == prefix.Length) return null;
+        var id = trackUri[prefix.Length..];
+        var album = SpotifyPlayerApi.ParseAlbumUri(await SendAsync(() => SpotifyPlayerApi.Track(id), ct).ConfigureAwait(false));
+        if (album is not null) _albumCache[trackUri] = album;
+        return album;
+    }
 
     private async Task<SpotifyDevice> LocalDeviceAsync(CancellationToken ct)
     {

@@ -10,12 +10,15 @@ namespace Notchle.Core.App.Spotify;
 public sealed record SpotifyDevice(string? Id, string Name, string Type, bool IsActive, bool IsRestricted);
 
 /// The parts of GET /v1/me/player the snippet timing needs.
-public sealed record SpotifyPlayback(bool IsPlaying, int ProgressMs, string? ItemUri, string? CurrentlyPlayingType, string? DeviceId)
+/// `LinkedFromUri` is `item.linked_from.uri`: Spotify plays a relinked version of a track for the
+/// account's market and reports the requested uri there, so it counts as the requested track.
+public sealed record SpotifyPlayback(bool IsPlaying, int ProgressMs, string? ItemUri, string? CurrentlyPlayingType, string? DeviceId,
+    string? LinkedFromUri = null)
 {
     public PlaybackSample ToSample(string expectedUri) => new(
         Position: ProgressMs / 1000.0,
         IsPlaying: IsPlaying,
-        WrongTrack: ItemUri != expectedUri && CurrentlyPlayingType != "ad",
+        WrongTrack: ItemUri != expectedUri && LinkedFromUri != expectedUri && CurrentlyPlayingType != "ad",
         Failure: CurrentlyPlayingType == "ad" && IsPlaying ? "Spotify is playing an ad" : null);
 }
 
@@ -27,16 +30,47 @@ public static class SpotifyPlayerApi
 
     public static HttpRequestMessage Devices() => new(HttpMethod.Get, new Uri(BaseUri, "me/player/devices"));
 
-    public static HttpRequestMessage PlaybackState() => new(HttpMethod.Get, new Uri(BaseUri, "me/player"));
+    /// `market=from_token` so Spotify reports `linked_from` for relinked tracks.
+    public static HttpRequestMessage PlaybackState() => new(HttpMethod.Get, new Uri(BaseUri, "me/player?market=from_token"));
 
     /// PUT /me/player: move playback to this PC's Spotify app without starting anything.
     public static HttpRequestMessage Transfer(string deviceId) =>
         Put("me/player", new JsonObject { ["device_ids"] = new JsonArray(deviceId), ["play"] = false });
 
     /// PUT /me/player/play: this one track, from positionMs, on the given device.
-    public static HttpRequestMessage Play(string deviceId, string trackUri, int positionMs) =>
-        Put($"me/player/play?device_id={Uri.EscapeDataString(deviceId)}",
-            new JsonObject { ["uris"] = new JsonArray(trackUri), ["position_ms"] = Math.Max(0, positionMs) });
+    /// With `contextUri` (the track's album) it plays "that album, from this track": measured on
+    /// Tren's account (2026-09-24), a bare `uris` play is accepted with 204 but Spotify then
+    /// empties the player, while the album-context play works. Keys are in sorted order, as on macOS.
+    public static HttpRequestMessage Play(string deviceId, string trackUri, int positionMs, string? contextUri = null)
+    {
+        var path = $"me/player/play?device_id={Uri.EscapeDataString(deviceId)}";
+        var position = Math.Max(0, positionMs);
+        return contextUri is null
+            ? Put(path, new JsonObject { ["position_ms"] = position, ["uris"] = new JsonArray(trackUri) })
+            : Put(path, new JsonObject
+            {
+                ["context_uri"] = contextUri,
+                ["offset"] = new JsonObject { ["uri"] = trackUri },
+                ["position_ms"] = position,
+            });
+    }
+
+    /// GET /tracks/{id}: used for the album uri (the play context).
+    public static HttpRequestMessage Track(string id) =>
+        new(HttpMethod.Get, new Uri(BaseUri, $"tracks/{Uri.EscapeDataString(id)}?market=from_token"));
+
+    public static string? ParseAlbumUri(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("album", out var album) && album.ValueKind == JsonValueKind.Object
+                ? Str(album, "uri")
+                : null;
+        }
+        catch (JsonException) { return null; }
+    }
 
     /// PUT /me/player/play without a body resumes the current track.
     public static HttpRequestMessage Resume(string? deviceId) => Put(WithDevice("me/player/play", deviceId), null);
@@ -77,10 +111,12 @@ public static class SpotifyPlayerApi
         if (string.IsNullOrWhiteSpace(json)) return null;
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
-        string? itemUri = root.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object ? Str(item, "uri") : null;
+        var hasItem = root.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object;
+        string? itemUri = hasItem ? Str(item, "uri") : null;
+        string? linkedFrom = hasItem && item.TryGetProperty("linked_from", out var lf) && lf.ValueKind == JsonValueKind.Object ? Str(lf, "uri") : null;
         string? deviceId = root.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object ? Str(device, "id") : null;
         var progress = root.TryGetProperty("progress_ms", out var p) && p.ValueKind == JsonValueKind.Number ? p.GetInt32() : 0;
-        return new SpotifyPlayback(Bool(root, "is_playing"), progress, itemUri, Str(root, "currently_playing_type"), deviceId);
+        return new SpotifyPlayback(Bool(root, "is_playing"), progress, itemUri, Str(root, "currently_playing_type"), deviceId, linkedFrom);
     }
 
     /// Maps a failed player call to a PlayerException with a message fit for the island.

@@ -26,6 +26,14 @@ internal sealed class AppFakeSpotify(AppFakeClock clock, double latency = 0.3) :
     public string ValidAccessToken = "access-1";
     /// Returns a response to short-circuit a request (by "METHOD path").
     public Func<string, HttpResponseMessage?>? Override;
+    /// GET /v1/tracks/{id} answers with album "spotify:album:A-{id}".
+    public int TrackLookups;
+    /// Relinking: GET /me/player reports this uri as the item, with the requested uri in linked_from.
+    public string? RelinkTo;
+    /// What was measured on Tren's account (2026-09-24): a bare `uris` play gets 204 but Spotify
+    /// empties the player. Off by default so the fallback path can still be timed.
+    public bool BareUrisEmptyThePlayer;
+    public string? ContextUri { get; private set; }
 
     private bool _playing;
     private string? _uri;
@@ -58,12 +66,29 @@ internal sealed class AppFakeSpotify(AppFakeClock clock, double latency = 0.3) :
                 return Json(HttpStatusCode.OK, DevicesJson);
             case ("PUT", "/v1/me/player"):
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
+            case ("GET", _) when path.StartsWith("/v1/tracks/", StringComparison.Ordinal):
+                TrackLookups++;
+                var id = path["/v1/tracks/".Length..];
+                return Json(HttpStatusCode.OK, new JsonObject
+                {
+                    ["uri"] = $"spotify:track:{id}",
+                    ["album"] = new JsonObject { ["uri"] = $"spotify:album:A-{id}" },
+                }.ToJsonString());
             case ("PUT", "/v1/me/player/play"):
                 if (!string.IsNullOrEmpty(body))
                 {
                     var json = JsonNode.Parse(body)!;
-                    _uri = json["uris"]![0]!.GetValue<string>();
+                    // An album context plays the offset track; bare uris play the first uri.
+                    ContextUri = json["context_uri"]?.GetValue<string>();
+                    _uri = ContextUri is not null
+                        ? json["offset"]!["uri"]!.GetValue<string>()
+                        : BareUrisEmptyThePlayer ? null : json["uris"]![0]!.GetValue<string>();
                     _startMs = json["position_ms"]!.GetValue<int>();
+                    if (_uri is null)
+                    {
+                        _playing = false;
+                        return new HttpResponseMessage(HttpStatusCode.NoContent);
+                    }
                 }
                 else
                 {
@@ -86,7 +111,9 @@ internal sealed class AppFakeSpotify(AppFakeClock clock, double latency = 0.3) :
                         ["is_playing"] = _playing,
                         ["progress_ms"] = progress,
                         ["currently_playing_type"] = "track",
-                        ["item"] = new JsonObject { ["uri"] = _uri },
+                        ["item"] = RelinkTo is null
+                            ? new JsonObject { ["uri"] = _uri }
+                            : new JsonObject { ["uri"] = RelinkTo, ["linked_from"] = new JsonObject { ["uri"] = _uri } },
                     }.ToJsonString());
         }
         return Json(HttpStatusCode.NotFound, """{"error":{"status":404,"message":"no route"}}""");
@@ -188,7 +215,19 @@ public class AppSpotifyPlayerApiTests
         var play = SpotifyPlayerApi.Play("dev 1", "spotify:track:t1", 1500);
         Assert.Equal(HttpMethod.Put, play.Method);
         Assert.Equal("https://api.spotify.com/v1/me/player/play?device_id=dev%201", play.RequestUri!.AbsoluteUri);
-        Assert.Equal("""{"uris":["spotify:track:t1"],"position_ms":1500}""", await play.Content!.ReadAsStringAsync());
+        Assert.Equal("""{"position_ms":1500,"uris":["spotify:track:t1"]}""", await play.Content!.ReadAsStringAsync());
+
+        // In the album context: the same bytes the macOS player sends (sorted keys).
+        var inAlbum = SpotifyPlayerApi.Play("dev 1", "spotify:track:t1", -5, "spotify:album:a1");
+        Assert.Equal("https://api.spotify.com/v1/me/player/play?device_id=dev%201", inAlbum.RequestUri!.AbsoluteUri);
+        Assert.Equal("""{"context_uri":"spotify:album:a1","offset":{"uri":"spotify:track:t1"},"position_ms":0}""",
+            await inAlbum.Content!.ReadAsStringAsync());
+
+        Assert.Equal("https://api.spotify.com/v1/tracks/t%201?market=from_token", SpotifyPlayerApi.Track("t 1").RequestUri!.AbsoluteUri);
+        Assert.Equal("https://api.spotify.com/v1/me/player?market=from_token", SpotifyPlayerApi.PlaybackState().RequestUri!.AbsoluteUri);
+        Assert.Equal("spotify:album:a1", SpotifyPlayerApi.ParseAlbumUri("""{"uri":"spotify:track:t1","album":{"uri":"spotify:album:a1"}}"""));
+        Assert.Null(SpotifyPlayerApi.ParseAlbumUri("""{"uri":"spotify:track:t1"}"""));
+        Assert.Null(SpotifyPlayerApi.ParseAlbumUri("not json"));
 
         Assert.Equal("""{"device_ids":["d"],"play":false}""", await SpotifyPlayerApi.Transfer("d").Content!.ReadAsStringAsync());
         Assert.Equal("/v1/me/player/pause?device_id=d", SpotifyPlayerApi.Pause("d").RequestUri!.PathAndQuery);
@@ -219,6 +258,11 @@ public class AppSpotifyPlayerApiTests
         Assert.Equal(new SpotifyPlayback(true, 4321, "spotify:track:t1", "track", "d"), p);
         Assert.Equal(new PlaybackSample(4.321, true), p.ToSample("spotify:track:t1"));
         Assert.True(p.ToSample("spotify:track:other").WrongTrack);
+        // Relinked: Spotify plays another uri for the market and names the requested one in linked_from.
+        var relinked = SpotifyPlayerApi.ParsePlayback("""{"is_playing":true,"progress_ms":10,"currently_playing_type":"track","item":{"uri":"spotify:track:t9","linked_from":{"uri":"spotify:track:t1"}}}""")!;
+        Assert.Equal("spotify:track:t1", relinked.LinkedFromUri);
+        Assert.False(relinked.ToSample("spotify:track:t1").WrongTrack);
+        Assert.True(relinked.ToSample("spotify:track:t2").WrongTrack);
         var ad = SpotifyPlayerApi.ParsePlayback("""{"is_playing":true,"progress_ms":1,"currently_playing_type":"ad","item":null}""")!;
         Assert.Equal("Spotify is playing an ad", ad.ToSample("spotify:track:t1").Failure);
     }
@@ -228,6 +272,7 @@ public class AppSpotifyPlayerApiTests
     [InlineData(403, """{"error":{"status":403,"message":"Premium required","reason":"PREMIUM_REQUIRED"}}""", PlayerErrorKind.Unavailable, "Spotify Connect needs Spotify Premium")]
     [InlineData(404, """{"error":{"status":404,"message":"Player command failed: No active device found","reason":"NO_ACTIVE_DEVICE"}}""", PlayerErrorKind.Unavailable, "Spotify isn't open on this PC. Start the Spotify app and try again")]
     [InlineData(429, "", PlayerErrorKind.Failed, "Spotify is rate-limiting Notchle. Try again in 7 s.")]
+    [InlineData(403, """{"error":{"status":403,"message":"Player command failed: Restriction violated","reason":"UNKNOWN"}}""", PlayerErrorKind.Unavailable, "Spotify refused playback control (Player command failed: Restriction violated). It needs Premium, and your account added under User Management in your Spotify developer app")]
     [InlineData(502, """{"error":{"status":502,"message":"Bad gateway"}}""", PlayerErrorKind.Failed, "Spotify returned HTTP 502: Bad gateway")]
     public void MapsErrors(int status, string body, PlayerErrorKind kind, string message)
     {
@@ -258,10 +303,11 @@ public class AppSpotifyWebPlayerTests
 
         await player.PlaySnippetAsync(T1, 0, 5, CancellationToken.None);
 
-        Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player", "PUT /v1/me/player/play?device_id=pc" },
-            spotify.Requests.Take(3));
+        Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player", "GET /v1/tracks/t1?market=from_token",
+                "PUT /v1/me/player/play?device_id=pc", "GET /v1/me/player?market=from_token" },
+            spotify.Requests.Take(5));
         Assert.Equal("""{"device_ids":["pc"],"play":false}""", spotify.Bodies[1]);
-        Assert.Equal("""{"uris":["spotify:track:t1"],"position_ms":0}""", spotify.Bodies[2]);
+        Assert.Equal("""{"context_uri":"spotify:album:A-t1","offset":{"uri":"spotify:track:t1"},"position_ms":0}""", spotify.Bodies[3]);
         Assert.Equal("PUT /v1/me/player/pause?device_id=pc", spotify.Requests.Last());
         Assert.All(spotify.AuthHeaders, h => Assert.Equal("Bearer access-1", h));
         Assert.False(spotify.IsPlaying);
@@ -308,10 +354,12 @@ public class AppSpotifyWebPlayerTests
 
         await player.RestartTrackAsync(T1);
 
+        // The album was looked up for the snippet already: no second GET /tracks.
         Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player", "PUT /v1/me/player/play?device_id=pc" },
             spotify.Requests.Skip(before));
         Assert.Equal("""{"device_ids":["pc"],"play":false}""", spotify.Bodies[before + 1]);
-        Assert.Equal("""{"uris":["spotify:track:t1"],"position_ms":0}""", spotify.Bodies[before + 2]);
+        Assert.Equal("""{"context_uri":"spotify:album:A-t1","offset":{"uri":"spotify:track:t1"},"position_ms":0}""", spotify.Bodies[before + 2]);
+        Assert.Equal(1, spotify.TrackLookups);
         Assert.True(spotify.IsPlaying);
 
         // The song keeps playing: no pause is sent later, however long it plays.
@@ -328,7 +376,8 @@ public class AppSpotifyWebPlayerTests
 
         await player.RestartTrackAsync(T1);
 
-        Assert.Equal(new[] { "GET /v1/me/player/devices", "PUT /v1/me/player/play?device_id=pc" }, spotify.Requests);
+        Assert.Equal(new[] { "GET /v1/me/player/devices", "GET /v1/tracks/t1?market=from_token", "PUT /v1/me/player/play?device_id=pc" },
+            spotify.Requests);
         Assert.True(spotify.IsPlaying);
     }
 
@@ -350,10 +399,72 @@ public class AppSpotifyWebPlayerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => player.PlaySnippetAsync(T1, 0, 15, cts.Token));
         await restart!;
 
-        var restartPlay = spotify.Bodies.FindLastIndex(b => b == """{"uris":["spotify:track:t1"],"position_ms":0}""");
+        var restartPlay = spotify.Bodies.FindLastIndex(b => b == """{"context_uri":"spotify:album:A-t1","offset":{"uri":"spotify:track:t1"},"position_ms":0}""");
         Assert.True(restartPlay > 2, "the restart's play request was sent");
         Assert.DoesNotContain(spotify.Requests.Skip(restartPlay), r => r.Contains("/pause"));
         Assert.True(spotify.IsPlaying);
+    }
+
+    /// The measured failure: with bare uris Spotify empties the player, so only the album-context
+    /// play gets the snippet heard at all.
+    [Fact]
+    public async Task PlaysInTheAlbumContextSoSpotifyDoesNotEmptyThePlayer()
+    {
+        var (player, spotify, _, _) = Make();
+        spotify.BareUrisEmptyThePlayer = true;
+
+        await player.PlaySnippetAsync(T1, 0, 5, CancellationToken.None);
+
+        Assert.Equal("spotify:album:A-t1", spotify.ContextUri);
+        Assert.InRange(spotify.PausedPosition, 4.9, 5.2);
+    }
+
+    [Fact]
+    public async Task LooksUpEachTracksAlbumOnce()
+    {
+        var (player, spotify, _, _) = Make();
+        var t2 = T1 with { Id = "t2", Uri = "spotify:track:t2" };
+
+        await player.PlaySnippetAsync(T1, 0, 1, CancellationToken.None);
+        await player.PlaySnippetAsync(T1, 10, 1, CancellationToken.None);
+        await player.RestartTrackAsync(T1);
+        await player.PlaySnippetAsync(t2, 0, 1, CancellationToken.None);
+
+        Assert.Equal(new[] { "GET /v1/tracks/t1?market=from_token", "GET /v1/tracks/t2?market=from_token" },
+            spotify.Requests.Where(r => r.StartsWith("GET /v1/tracks/", StringComparison.Ordinal)));
+        Assert.Equal(2, spotify.TrackLookups);
+        Assert.Equal("""{"context_uri":"spotify:album:A-t2","offset":{"uri":"spotify:track:t2"},"position_ms":0}""",
+            spotify.Bodies[spotify.Requests.FindLastIndex(r => r.StartsWith("PUT /v1/me/player/play", StringComparison.Ordinal))]);
+    }
+
+    [Theory]
+    [InlineData(404, """{"error":{"status":404,"message":"Non existing id"}}""")]
+    [InlineData(200, """{"uri":"spotify:track:t1"}""")]
+    [InlineData(500, "oops")]
+    public async Task FallsBackToBareUrisWhenTheAlbumLookupFails(int status, string body)
+    {
+        var (player, spotify, _, _) = Make();
+        spotify.Override = key => key.StartsWith("GET /v1/tracks/", StringComparison.Ordinal)
+            ? AppFakeSpotify.Json((HttpStatusCode)status, body)
+            : null;
+
+        await player.PlaySnippetAsync(T1, 0, 2, CancellationToken.None);
+
+        var play = spotify.Requests.FindIndex(r => r.StartsWith("PUT /v1/me/player/play", StringComparison.Ordinal));
+        Assert.Equal("""{"position_ms":0,"uris":["spotify:track:t1"]}""", spotify.Bodies[play]);
+        Assert.Null(spotify.ContextUri);
+        Assert.InRange(spotify.PausedPosition, 1.9, 2.2);
+    }
+
+    [Fact]
+    public async Task ARelinkedTrackCountsAsTheRequestedOne()
+    {
+        var (player, spotify, _, _) = Make();
+        spotify.RelinkTo = "spotify:track:relinked";
+
+        await player.PlaySnippetAsync(T1, 0, 5, CancellationToken.None);
+
+        Assert.InRange(spotify.PausedPosition, 4.9, 5.2);
     }
 
     [Fact]
