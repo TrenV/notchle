@@ -42,11 +42,30 @@ snapshots, and uploads them together with a self-contained single-file `Notchle.
 
 - **New link…**: go back to the link field and show the island.
 - **Connect Spotify…**: sign in for full tracks (see below).
-- **Reset progress**: after a confirmation, cleared songs can come back.
+- **Reset progress**: after a confirmation, cleared songs can come back. The play history is kept.
 - **Start with Windows**: toggles `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Notchle`.
 - **Quit Notchle**: pauses the song, then exits.
 
 Progress and settings live in `%APPDATA%\Notchle\progress.json`.
+
+## History
+
+Every song is recorded once its outcome is decided: title, artists, playlist, whether you got
+it and at which try, wrong guesses and skips, and the album cover. The island header has a
+**Play / History** switch (Ctrl+1 / Ctrl+2 while the island has the keyboard; Esc goes back to
+Play). The History tab shows your totals (correct/total, accuracy, average tries, best streak)
+and the list newest first, grouped by day. The game keeps running while it is open.
+
+- Songs of the set you are playing stay hidden there until the set ends or you quit the
+  playlist: a failed set is replayed with the same songs, so the history would give them away.
+- **Clear history** at the bottom asks once more ("Clear all history?") before it forgets
+  everything. Reset progress (tray) never touches the history.
+- The file is `%APPDATA%\Notchle\history.json` (the newest 10,000 plays), in the same format
+  as the macOS app's, so it can be copied between the two.
+
+Album covers come from Spotify's public oEmbed endpoint, looked up only after the answer is
+shown (never while you are guessing), and are cached in `%LOCALAPPDATA%\Notchle\artwork`.
+Offline, the answer simply shows without one.
 
 ## Players
 

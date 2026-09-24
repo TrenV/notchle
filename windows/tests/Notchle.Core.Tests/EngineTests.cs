@@ -96,7 +96,9 @@ public class EngineTests
         IReadOnlyList<GameEffect> lastEffects = [];
         for (var i = 0; i < 20; i++)
         {
-            Assert.Equal([new Effect.ContinuePlaying()], e.Send(Right(e.State.CurrentTrack)));
+            var current = e.State.CurrentTrack!;
+            Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(current, new TrackOutcome.Correct(0), 0, 0)],
+                e.Send(Right(current)));
             Assert.Equal(new Phase.Correct(0), e.State.Phase);
             lastEffects = e.Send(new Next());
             if (i < 19) Assert.Equal([new Effect.PlaySnippet(set[i + 1], 0, 5)], lastEffects);
@@ -143,7 +145,8 @@ public class EngineTests
         Assert.Equal([new Effect.PlaySnippet(track, 0, 15)], e.Send(new Retry()));
         e.Send(new SnippetFinished());
         Assert.Equal(new Phase.Guessing(2), e.State.Phase);
-        Assert.Equal([new Effect.ContinuePlaying()], e.Send(WrongGuess));
+        Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(track, new TrackOutcome.Missed(), 3, 0)],
+            e.Send(WrongGuess));
         Assert.Equal(new Phase.Revealed(WrongVerdict), e.State.Phase);
         Assert.Equal([new TrackOutcome.Missed()], e.State.Results);
     }
@@ -177,7 +180,8 @@ public class EngineTests
         Assert.Equal([new Effect.Stop()], e.Send(WrongGuess));
         Assert.Equal(new Phase.Wrong(0, WrongVerdict), e.State.Phase);
         e.Send(new Retry());
-        Assert.Equal([new Effect.ContinuePlaying()], e.Send(Right(e.State.CurrentTrack)));
+        Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(e.State.CurrentTrack!, new TrackOutcome.Correct(1), 1, 0)],
+            e.Send(Right(e.State.CurrentTrack)));
     }
 
     [Fact]
@@ -195,7 +199,8 @@ public class EngineTests
     public void GiveUpRevealsWithLastWrongVerdictOrNull()
     {
         var e = Engine();
-        Assert.Equal([new Effect.ContinuePlaying()], e.Send(new GiveUp()));
+        Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(e.State.CurrentTrack!, new TrackOutcome.Missed(), 0, 0)],
+            e.Send(new GiveUp()));
         Assert.Equal(new Phase.Revealed(null), e.State.Phase);
         Assert.Equal([new TrackOutcome.Missed()], e.State.Results);
 
@@ -385,7 +390,8 @@ public class EngineTests
         Assert.Equal(new Phase.Guessing(1), e.State.Phase);
         Assert.Equal([new Effect.PlaySnippet(track, 0, 15)], e.Send(new Skip()));  // after it
         Assert.Equal(new Phase.PlayingSnippet(2), e.State.Phase);
-        Assert.Equal([new Effect.ContinuePlaying()], e.Send(Right(track)));
+        Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(track, new TrackOutcome.Correct(2), 0, 2)],
+            e.Send(Right(track)));
         Assert.Equal(new Phase.Correct(2), e.State.Phase);
         Assert.Equal([new TrackOutcome.Correct(2)], e.State.Results);
         Assert.Equal(1, e.State.CelebrationCount);
@@ -397,7 +403,8 @@ public class EngineTests
         var e = Engine();
         e.Send(new Skip());
         e.Send(new Skip()); // PlayingSnippet(2)
-        Assert.Equal([new Effect.ContinuePlaying()], e.Send(new Skip()));
+        Assert.Equal([new Effect.ContinuePlaying(), new Effect.RecordOutcome(e.State.CurrentTrack!, new TrackOutcome.Missed(), 0, 2)],
+            e.Send(new Skip()));
         Assert.Equal(new Phase.Revealed(null), e.State.Phase);
         Assert.Equal([new TrackOutcome.Missed()], e.State.Results);
 
@@ -561,10 +568,12 @@ public class EngineTests
         var e = Engine();
         Assert.Empty(e.Send(new PlaybackFailed("no Spotify")));
         Assert.Equal(new Phase.Error("no Spotify"), e.State.Phase);
+        var failed = e.State.CurrentTrack!;
         var effects = e.Send(new Next());
         Assert.Equal([new TrackOutcome.Missed()], e.State.Results);
         Assert.Equal(1, e.State.Index);
-        Assert.Equal([new Effect.PlaySnippet(e.State.CurrentTrack!, 0, 5)], effects);
+        Assert.Equal([new Effect.PlaySnippet(e.State.CurrentTrack!, 0, 5), new Effect.RecordOutcome(failed, new TrackOutcome.Missed(), 0, 0)],
+            effects);
     }
 
     [Fact]

@@ -21,10 +21,18 @@ public sealed class AppCoordinator
     private readonly SynchronizationContext? _context;
     private readonly IAnswerJudge _judge;
     private readonly Func<ulong> _nextSeed;
+    private readonly IHistoryPersistence _historyStore;
+    private readonly TimeProvider _clock;
+    private readonly IArtworkResolver? _artwork;
 
     private GameEngine _engine;
     private AppSettings _settings;
     private IPlayer _player;
+    private IReadOnlyList<HistoryEntry> _history;
+    /// The cover shown on the answer screen, and the track it belongs to.
+    private Uri? _currentArtwork;
+    private string? _currentArtworkTrackId;
+    private Task _artworkTask = Task.CompletedTask;
 
     /// Playback operations run strictly one after another. A new operation cancels the one in
     /// flight (a snippet, typically) and waits for it to wind down before starting, so a
@@ -38,12 +46,21 @@ public sealed class AppCoordinator
     public event Action<AppSettings>? SettingsChanged;
     /// Raised (on the context) after the player was swapped for a new PlayerMode.
     public event Action<IPlayer>? PlayerChanged;
+    /// Raised (on the context) with the whole history, oldest first, after an entry was
+    /// appended or the history was cleared.
+    public event Action<IReadOnlyList<HistoryEntry>>? HistoryChanged;
+    /// Raised (on the context) when the current track's album cover arrives (Correct / Revealed
+    /// only) and with null when the track moves on.
+    public event Action<Uri?>? CurrentArtworkChanged;
 
     /// Test hook: every action as it enters the engine, on the thread that sent it.
     internal event Action<GameAction>? ActionSent;
 
     /// <param name="makePlayer">Builds the player for the given settings (their PlayerMode).</param>
     /// <param name="publishState">Receives every new state, on <paramref name="context"/>.</param>
+    /// <param name="history">Where the play history lives; null keeps it in memory only.</param>
+    /// <param name="clock">Stamps history entries.</param>
+    /// <param name="artwork">Looks up album covers once a track's outcome is decided; null: none.</param>
     public AppCoordinator(
         ITrackSource source,
         ProgressStore store,
@@ -51,8 +68,12 @@ public sealed class AppCoordinator
         Action<GameState> publishState,
         SynchronizationContext? context = null,
         IAnswerJudge? judge = null,
-        ulong? seed = null)
-        : this(source, new ProgressStorePersistence(store), makePlayer, publishState, context, judge, seed)
+        ulong? seed = null,
+        HistoryStore? history = null,
+        TimeProvider? clock = null,
+        IArtworkResolver? artwork = null)
+        : this(source, new ProgressStorePersistence(store), makePlayer, publishState, context, judge, seed,
+            history is null ? null : new HistoryStorePersistence(history), clock, artwork)
     {
     }
 
@@ -63,7 +84,10 @@ public sealed class AppCoordinator
         Action<GameState> publishState,
         SynchronizationContext? context = null,
         IAnswerJudge? judge = null,
-        ulong? seed = null)
+        ulong? seed = null,
+        IHistoryPersistence? history = null,
+        TimeProvider? clock = null,
+        IArtworkResolver? artwork = null)
     {
         _source = source;
         _store = store;
@@ -72,6 +96,11 @@ public sealed class AppCoordinator
         _context = context;
         _judge = judge ?? new FuzzyAnswerJudge();
         _nextSeed = seed is { } fixedSeed ? () => fixedSeed : RandomSeed;
+
+        _historyStore = history ?? new InMemoryHistoryPersistence();
+        _clock = clock ?? TimeProvider.System;
+        _artwork = artwork;
+        _history = _historyStore.Load();
 
         var progress = store.Load();
         _settings = progress.Settings;
@@ -82,6 +111,21 @@ public sealed class AppCoordinator
     public GameState State { get { lock (_gate) return _engine.State; } }
     public AppSettings Settings { get { lock (_gate) return _settings; } }
     public IPlayer Player { get { lock (_gate) return _player; } }
+    /// The current track's cover while its answer shows; null otherwise.
+    public Uri? CurrentArtworkUrl { get { lock (_gate) return _currentArtwork; } }
+    /// Every recorded track, oldest first.
+    public IReadOnlyList<HistoryEntry> History { get { lock (_gate) return _history; } }
+
+    /// Forgets the play history (cleared songs and settings stay).
+    public void ClearHistory()
+    {
+        lock (_gate)
+        {
+            _history = [];
+            SaveHistory();
+            PublishHistory(_history);
+        }
+    }
 
     public void Send(GameAction action)
     {
@@ -153,12 +197,13 @@ public sealed class AppCoordinator
     {
         while (true)
         {
-            Task playback, fetch;
-            lock (_gate) { playback = _playbackTask; fetch = _fetchTask; }
-            await Task.WhenAll(playback, fetch).ConfigureAwait(false);
+            Task playback, fetch, artwork;
+            lock (_gate) { playback = _playbackTask; fetch = _fetchTask; artwork = _artworkTask; }
+            await Task.WhenAll(playback, fetch, artwork).ConfigureAwait(false);
             lock (_gate)
             {
-                if (ReferenceEquals(playback, _playbackTask) && ReferenceEquals(fetch, _fetchTask)) return;
+                if (ReferenceEquals(playback, _playbackTask) && ReferenceEquals(fetch, _fetchTask)
+                    && ReferenceEquals(artwork, _artworkTask)) return;
             }
         }
     }
@@ -168,7 +213,60 @@ public sealed class AppCoordinator
         ActionSent?.Invoke(action);
         var effects = _engine.Send(action);
         Publish(_engine.State);
+        // The cover belongs to one answer screen: gone as soon as the track moves on.
+        if (_currentArtworkTrackId is { } shown && !ShowsAnswerFor(shown))
+        {
+            _currentArtworkTrackId = null;
+            if (_currentArtwork is not null)
+            {
+                _currentArtwork = null;
+                PublishArtwork(null);
+            }
+        }
         foreach (var effect in effects) Run(effect);
+    }
+
+    /// Correct / Revealed of <paramref name="trackId"/>: the only screens that show its cover.
+    private bool ShowsAnswerFor(string trackId) =>
+        _engine.State.Phase is GamePhase.Correct or GamePhase.Revealed && _engine.State.CurrentTrack?.Id == trackId;
+
+    /// Must be called under the lock, after the entry was appended. Recording never waits for
+    /// this: the cover is filled in when (if) it arrives.
+    private void ResolveArtwork(HistoryEntry entry)
+    {
+        if (_artwork is not { } resolver) return;
+        var trackId = entry.TrackId;
+        if (ShowsAnswerFor(trackId)) _currentArtworkTrackId = trackId;
+        var previous = _artworkTask;
+        var lookup = Task.Run(async () =>
+        {
+            Uri? url;
+            try { url = await resolver.ResolveAsync(trackId).ConfigureAwait(false); }
+            catch (Exception error)
+            {
+                Trace.TraceWarning($"Notchle: album cover lookup failed: {error.Message}");
+                url = null;
+            }
+            if (url is null) return;
+            lock (_gate)
+            {
+                var index = _history.ToList().FindIndex(e => e.Id == entry.Id);
+                if (index >= 0)
+                {
+                    var updated = _history.ToList();
+                    updated[index] = updated[index] with { ArtworkUrl = url };
+                    _history = updated;
+                    SaveHistory();
+                    PublishHistory(_history);
+                }
+                if (_currentArtworkTrackId == trackId && ShowsAnswerFor(trackId))
+                {
+                    _currentArtwork = url;
+                    PublishArtwork(url);
+                }
+            }
+        });
+        _artworkTask = Task.WhenAll(previous, lookup);
     }
 
     private void Run(GameEffect effect)
@@ -254,6 +352,27 @@ public sealed class AppCoordinator
             case GameEffect.PersistProgress:
                 Save();
                 break;
+
+            case GameEffect.RecordOutcome record:
+                var listing = _engine.State.Listing;
+                var correct = record.Outcome as TrackOutcome.Correct;
+                var entry = new HistoryEntry(
+                    Guid.NewGuid(),
+                    _clock.GetUtcNow(),
+                    record.Track.Id,
+                    record.Track.Title,
+                    record.Track.Artists.ToArray(),
+                    listing?.Name ?? "",
+                    listing?.Ref,
+                    correct is not null,
+                    correct?.TierIndex,
+                    record.WrongGuesses,
+                    record.Skips);
+                _history = HistoryStore.Capped([.. _history, entry]);
+                SaveHistory();
+                PublishHistory(_history);
+                ResolveArtwork(entry);
+                break;
         }
     }
 
@@ -306,6 +425,18 @@ public sealed class AppCoordinator
         }
     }
 
+    private void SaveHistory()
+    {
+        try
+        {
+            _historyStore.Save(_history);
+        }
+        catch (Exception error)
+        {
+            Trace.TraceError($"Notchle: saving history failed: {error}");
+        }
+    }
+
     private static void DisposeQuietly(IPlayer player)
     {
         try { (player as IDisposable)?.Dispose(); } catch { /* best effort */ }
@@ -318,6 +449,8 @@ public sealed class AppCoordinator
     private void Publish(GameState state) => Dispatch(() => _publishState(state));
     private void PublishSettings(AppSettings settings) => Dispatch(() => SettingsChanged?.Invoke(settings));
     private void PublishPlayer(IPlayer player) => Dispatch(() => PlayerChanged?.Invoke(player));
+    private void PublishHistory(IReadOnlyList<HistoryEntry> history) => Dispatch(() => HistoryChanged?.Invoke(history));
+    private void PublishArtwork(Uri? url) => Dispatch(() => CurrentArtworkChanged?.Invoke(url));
 
     private void Dispatch(Action callback)
     {
@@ -339,4 +472,25 @@ internal sealed class ProgressStorePersistence(ProgressStore store) : IProgressP
 {
     public Progress Load() => store.Load();
     public void Save(Progress progress) => store.Save(progress);
+}
+
+/// History seam: HistoryStore in production, in memory otherwise (and in tests).
+internal interface IHistoryPersistence
+{
+    IReadOnlyList<HistoryEntry> Load();
+    void Save(IReadOnlyList<HistoryEntry> entries);
+}
+
+internal sealed class HistoryStorePersistence(HistoryStore store) : IHistoryPersistence
+{
+    public IReadOnlyList<HistoryEntry> Load() => store.Load();
+    public void Save(IReadOnlyList<HistoryEntry> entries) => store.Save(entries);
+}
+
+internal sealed class InMemoryHistoryPersistence(IReadOnlyList<HistoryEntry>? initial = null) : IHistoryPersistence
+{
+    public IReadOnlyList<HistoryEntry> Saved { get; private set; } = initial ?? [];
+    public int SaveCount { get; private set; }
+    public IReadOnlyList<HistoryEntry> Load() => Saved;
+    public void Save(IReadOnlyList<HistoryEntry> entries) { Saved = entries; SaveCount++; }
 }

@@ -80,9 +80,15 @@ public partial class App : Application
             new ProgressStore(AppPaths.DataDirectory),
             PlayerFactory.Create,
             state => model.State = state,
-            new DispatcherSynchronizationContext(Dispatcher));
+            new DispatcherSynchronizationContext(Dispatcher),
+            history: new HistoryStore(AppPaths.DataDirectory),
+            artwork: new ArtworkResolver(Http.Shared));
         model.State = coordinator.State;
         model.Settings = coordinator.Settings;
+        model.History = coordinator.History;
+        coordinator.HistoryChanged += history => model.History = history;
+        coordinator.CurrentArtworkChanged += url => model.CurrentArtworkUrl = url;
+        model.ClearHistory = coordinator.ClearHistory;
         ShowPlayer(model, coordinator.Player);
         coordinator.SettingsChanged += settings => model.Settings = settings;
         coordinator.PlayerChanged += player => ShowPlayer(model, player);
@@ -131,7 +137,7 @@ public partial class App : Application
     private void ResetProgress()
     {
         var answer = MessageBox.Show(
-            "Songs from sets you already cleared can come back.",
+            "Songs from sets you already cleared can come back. Your play history is kept.",
             "Reset progress?",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,

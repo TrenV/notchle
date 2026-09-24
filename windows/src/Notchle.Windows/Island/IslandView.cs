@@ -34,13 +34,15 @@ internal sealed class IslandView : Grid
     private readonly TextBlock _headerProgress = Ui.Text("", 11, IslandTheme.Secondary, FontWeights.SemiBold);
     private readonly Border _gear;
     private readonly QuitButton _quit;
+    private readonly TabSwitch _tabs;
     private readonly FrameworkElement _gearIcon = Icons.Gear(IslandTheme.Secondary, 13);
     private readonly FrameworkElement _closeIcon = Icons.Close(IslandTheme.Secondary, 10);
     private readonly Border _body;
     private PhaseView? _phaseView;
     private Color _accent;
 
-    public IslandView(IslandSession session, NotchViewModel vm, Color accent)
+    /// <param name="artwork">Album covers; none (no disk, no network) when null.</param>
+    public IslandView(IslandSession session, NotchViewModel vm, Color accent, ArtworkImages? artwork = null)
     {
         _session = session;
         _vm = vm;
@@ -52,6 +54,9 @@ internal sealed class IslandView : Grid
         UseLayoutRounding = true;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
         KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.None);
+        // Takes the keyboard when the History tab shows no text box, so Esc / Ctrl+1 still arrive.
+        Focusable = true;
+        FocusVisualStyle = null;
 
         _glowEffect = new DropShadowEffect { Color = accent, BlurRadius = 30, ShadowDepth = 0, Opacity = 0.75 };
         _glow = new Path { Fill = IslandTheme.Black, Effect = _glowEffect, Opacity = 0, IsHitTestVisible = false };
@@ -68,7 +73,9 @@ internal sealed class IslandView : Grid
             Session = session, Vm = vm, Accent = accent,
             UrlField = Fields.Url, TitleField = Fields.Title, ArtistField = Fields.Artist,
             Changed = () => Changed?.Invoke(),
+            Artwork = artwork ?? ArtworkImages.None,
         };
+        _ctx.Artwork.Loaded += () => Changed?.Invoke();
 
         _collapsed = new CollapsedPill();
         _content.Children.Add(_collapsed);
@@ -98,7 +105,13 @@ internal sealed class IslandView : Grid
             _session.PressQuit();
             Changed?.Invoke();
         });
-        var header = Ui.Bar(Ui.Row(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), Ui.Row(8, _quit, _headerProgress, _gear), HeaderHeight);
+        // Play | History (Ctrl+1 / Ctrl+2): the game keeps running while History shows.
+        _tabs = new TabSwitch(tab =>
+        {
+            _session.ShowTab(tab);
+            Changed?.Invoke();
+        });
+        var header = Ui.Bar(Ui.Row(6, Icons.Note(IslandTheme.GreenBrush, 12), _headerTitle), Ui.Row(8, _tabs, _quit, _headerProgress, _gear), HeaderHeight);
         header.Margin = new Thickness(ContentPadding - 2, 0, ContentPadding - 6, 0);
         _expanded.Children.Add(header);
         _body = new Border { Margin = new Thickness(ContentPadding, 4, ContentPadding, 16) };
@@ -171,8 +184,10 @@ internal sealed class IslandView : Grid
         _gearIcon.Visibility = _session.ShowingSettings ? Visibility.Collapsed : Visibility.Visible;
         _closeIcon.Visibility = _session.ShowingSettings ? Visibility.Visible : Visibility.Collapsed;
         _quit.Update(_session.QuitLabel, _session.QuitArmed);
+        _tabs.Update(_session.ShowingHistory ? IslandTab.History : IslandTab.Play);
 
-        var screen = _session.Screen(_vm.Settings, _vm.PlayerName, _vm.PlayerPlaysFullTrack);
+        var screen = _session.Screen(_vm.Settings, _vm.PlayerName, _vm.PlayerPlaysFullTrack,
+            _vm.History, artworkUrl: _vm.CurrentArtworkUrl);
         if (_phaseView is null || !_phaseView.Accepts(screen))
         {
             _phaseView = PhaseView.Create(screen, _ctx);
@@ -184,11 +199,15 @@ internal sealed class IslandView : Grid
     /// Text boxes of the current phase, for focus handling.
     public IslandTextField? FieldFor(IslandField field) => field switch
     {
-        IslandField.Url when IslandRules.ShowsUrlField(_session.State.Phase) && !_session.ShowingSettings => Fields.Url,
-        IslandField.Title when IslandRules.ShowsGuessFields(_session.State.Phase) && !_session.ShowingSettings => Fields.Title,
-        IslandField.Artist when IslandRules.ShowsGuessFields(_session.State.Phase) && !_session.ShowingSettings => Fields.Artist,
+        _ when _session.ShowingSettings || _session.ShowingHistory => null,
+        IslandField.Url when IslandRules.ShowsUrlField(_session.State.Phase) => Fields.Url,
+        IslandField.Title when IslandRules.ShowsGuessFields(_session.State.Phase) => Fields.Title,
+        IslandField.Artist when IslandRules.ShowsGuessFields(_session.State.Phase) => Fields.Artist,
         _ => null,
     };
+
+    /// The header switch (tests).
+    internal TabSwitch Tabs => _tabs;
 
     /// The notch silhouette in window DIPs: flat top that flares into the top edge with small
     /// concave ears, straight sides, rounded bottom corners (port of NotchShape.swift).
