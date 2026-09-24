@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Notchle.Core/Notchle.Core.csproj" />
+    <Project Path="src/Notchle.Windows/Notchle.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Notchle.Core.Tests/Notchle.Core.Tests.csproj" />
+    <Project Path="tests/Notchle.Windows.Tests/Notchle.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <!-- Lets the Windows-only projects compile (and XAML be validated) on macOS/Linux.
+         They can only run on Windows; CI does that. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>
