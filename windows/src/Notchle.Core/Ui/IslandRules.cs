@@ -4,14 +4,14 @@ namespace Notchle.Core.Ui;
 
 // Pure presentation rules of the Windows "island", ported from
 // Sources/NotchleMac/UI/NotchUIRules.swift. Same phases, same copy, same shortcuts
-// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Ctrl+Shift+N / Ctrl+N / Esc); the Windows-only rules (no auto-expand, hover
+// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Ctrl+Shift+N / Ctrl+N / Ctrl+1 / Ctrl+2 / Esc); the Windows-only rules (no auto-expand, hover
 // collapse, click-to-type) live in IslandBehavior.
 
 /// Text fields of the island.
 public enum IslandField { Url, Title, Artist }
 
 /// Keys the island handles itself; everything else goes to the focused text box.
-public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS, CtrlShiftN, CtrlN }
+public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS, CtrlShiftN, CtrlN, Ctrl1, Ctrl2 }
 
 /// What a key means in the current phase.
 public abstract record IslandCommand
@@ -31,6 +31,8 @@ public abstract record IslandCommand
     public sealed record Quit : IslandCommand;
     /// Esc while the quit confirmation is armed.
     public sealed record DisarmQuit : IslandCommand;
+    /// Ctrl+1 / Ctrl+2 and the header switch: Play or History.
+    public sealed record ShowTab(IslandTab Tab) : IslandCommand;
 }
 
 public enum FieldTransitionKind
@@ -108,6 +110,11 @@ public static class IslandRules
         var track = state.CurrentTrack;
         return track is null ? null : new RevealedAnswer(track.Title, string.Join(", ", track.Artists));
     }
+
+    /// The album cover gate: <paramref name="artworkUrl"/> in Correct / Revealed with a current
+    /// track, null in every other phase (the cover would give the album away).
+    public static Uri? RevealedArtwork(GameState state, Uri? artworkUrl) =>
+        RevealedAnswer(state) is null ? null : artworkUrl;
 
     /// Placeholder of the artist field: with several artists only the count, never names.
     public static string ArtistPlaceholder(int artistCount) =>
@@ -195,12 +202,17 @@ public static class IslandRules
     /// when null). <paramref name="quitArmed"/>: the "Quit playlist?" capsule is showing; Esc
     /// then only disarms it. <paramref name="availableNew"/>: GameEngine.AvailableNewCount, for
     /// the set-end choices (Enter = the primary one, Ctrl+Shift+R = replay, Ctrl+Shift+N = new).
+    /// <paramref name="historyShown"/>: the History tab is up; the game keeps running behind it,
+    /// but only Esc (back to Play) and the tab / quit keys act there.
     public static IslandCommand? Command(IslandKey key, GamePhase phase, IslandField? focused, bool settingsOpen = false,
-        GameConfig? config = null, bool quitArmed = false, int availableNew = 0)
+        GameConfig? config = null, bool quitArmed = false, int availableNew = 0, bool historyShown = false)
     {
         if (quitArmed && key == IslandKey.Escape) return new IslandCommand.DisarmQuit();
         if (key == IslandKey.CtrlN) return ShowsQuit(phase) ? new IslandCommand.Quit() : null;
+        if (key == IslandKey.Ctrl1) return new IslandCommand.ShowTab(IslandTab.Play);
+        if (key == IslandKey.Ctrl2) return new IslandCommand.ShowTab(IslandTab.History);
         if (settingsOpen) return key == IslandKey.Escape ? new IslandCommand.CloseSettings() : null;
+        if (historyShown) return key == IslandKey.Escape ? new IslandCommand.ShowTab(IslandTab.Play) : null;
         var choices = SetEndChoices(phase, availableNew);
         if (choices.Count > 0)
         {
@@ -253,7 +265,8 @@ public static class IslandRules
 /// layer passes KeyInterop.VirtualKeyFromKey(e.Key).
 public static class IslandKeys
 {
-    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkN = 0x4E, VkR = 0x52, VkS = 0x53;
+    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkN = 0x4E, VkR = 0x52, VkS = 0x53,
+        Vk1 = 0x31, Vk2 = 0x32, VkNumpad1 = 0x61, VkNumpad2 = 0x62;
 
     public static IslandKey? FromVirtualKey(int vk, bool ctrl, bool alt, bool shift)
     {
@@ -271,6 +284,8 @@ public static class IslandKeys
             VkN when ctrl && !alt && shift => IslandKey.CtrlShiftN,
             // Ctrl+Alt+N (the global hotkey) never gets here as Ctrl+N.
             VkN when ctrl && !alt && !shift => IslandKey.CtrlN,
+            Vk1 or VkNumpad1 when ctrl && !alt && !shift => IslandKey.Ctrl1,
+            Vk2 or VkNumpad2 when ctrl && !alt && !shift => IslandKey.Ctrl2,
             _ => null,
         };
     }

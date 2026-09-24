@@ -20,6 +20,9 @@ public sealed class GameEngine
     private SplitMix64 _rng;
     /// The last wrong verdict for the current track; shown on reveal. Cleared per track.
     private Verdict? _lastVerdict;
+    /// Wrong submissions and skips on the current track, for GameEffect.RecordOutcome.
+    private int _wrongGuesses;
+    private int _skips;
 
     public GameState State { get; private set; }
 
@@ -88,7 +91,9 @@ public sealed class GameEngine
             case GameAction.Skip when phase is GamePhase.PlayingSnippet or GamePhase.Guessing:
             {
                 var tier = phase is GamePhase.PlayingSnippet p ? p.TierIndex : ((GamePhase.Guessing)phase).TierIndex;
-                return tier + 1 < Tiers.Count ? PlaySnippet(tier + 1) : Reveal(_lastVerdict);
+                if (tier + 1 >= Tiers.Count) return Reveal(_lastVerdict); // exactly GiveUp: not counted as a skip
+                _skips++;
+                return PlaySnippet(tier + 1);
             }
 
             case GameAction.GiveUp when phase is GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Wrong:
@@ -138,7 +143,7 @@ public sealed class GameEngine
             Results = Array.Empty<TrackOutcome>(),
             SetNumber = 0,
         };
-        _lastVerdict = null;
+        ResetTrackCounters();
     }
 
     private IReadOnlyList<GameEffect> StartNewSet()
@@ -162,9 +167,19 @@ public sealed class GameEngine
     private IReadOnlyList<GameEffect> StartTrack(int index)
     {
         State = State with { Index = index };
-        _lastVerdict = null;
+        ResetTrackCounters();
         return PlaySnippet(0);
     }
+
+    private void ResetTrackCounters()
+    {
+        _lastVerdict = null;
+        _wrongGuesses = 0;
+        _skips = 0;
+    }
+
+    private GameEffect.RecordOutcome Record(Track track, TrackOutcome outcome) =>
+        new(track, outcome, _wrongGuesses, _skips);
 
     private IReadOnlyList<GameEffect> PlaySnippet(int tier)
     {
@@ -181,15 +196,17 @@ public sealed class GameEngine
         var verdict = _judge.Judge(guess, track);
         if (verdict.IsCorrect)
         {
+            var outcome = new TrackOutcome.Correct(tier);
             State = State with
             {
                 Phase = new GamePhase.Correct(tier),
-                Results = [.. State.Results, new TrackOutcome.Correct(tier)],
+                Results = [.. State.Results, outcome],
                 CelebrationCount = State.CelebrationCount + 1,
             };
-            return [new GameEffect.ContinuePlaying()];
+            return [new GameEffect.ContinuePlaying(), Record(track, outcome)];
         }
         _lastVerdict = verdict;
+        _wrongGuesses++;
         if (tier + 1 < Tiers.Count)
         {
             State = State with { Phase = new GamePhase.Wrong(tier, verdict) };
@@ -200,23 +217,31 @@ public sealed class GameEngine
 
     private IReadOnlyList<GameEffect> Reveal(Verdict? verdict)
     {
+        if (State.CurrentTrack is not { } track) return None;
+        var outcome = new TrackOutcome.Missed();
         State = State with
         {
             Phase = new GamePhase.Revealed(verdict),
-            Results = [.. State.Results, new TrackOutcome.Missed()],
+            Results = [.. State.Results, outcome],
         };
-        return [new GameEffect.ContinuePlaying()];
+        return [new GameEffect.ContinuePlaying(), Record(track, outcome)];
     }
 
     private IReadOnlyList<GameEffect> Advance()
     {
         if (State.CurrentSet.Count == 0) return None; // error while loading: nothing to skip
-        // An error mid-track (before an outcome was recorded) counts as a miss.
+        // An error mid-track (before an outcome was recorded) counts as a miss; RecordOutcome
+        // goes last, after the effects that start the next track or end the set.
+        GameEffect[] recorded = [];
         if (State.Results.Count <= State.Index)
-            State = State with { Results = [.. State.Results, new TrackOutcome.Missed()] };
+        {
+            var outcome = new TrackOutcome.Missed();
+            if (State.CurrentTrack is { } track) recorded = [Record(track, outcome)];
+            State = State with { Results = [.. State.Results, outcome] };
+        }
 
         var nextIndex = State.Index + 1;
-        if (nextIndex < State.CurrentSet.Count) return StartTrack(nextIndex);
+        if (nextIndex < State.CurrentSet.Count) return [.. StartTrack(nextIndex), .. recorded];
 
         State = State with { Index = State.CurrentSet.Count };
         var correct = State.CorrectCount;
@@ -228,7 +253,7 @@ public sealed class GameEngine
             Phase = correct == State.CurrentSet.Count ? new GamePhase.SetComplete(correct) : new GamePhase.SetFailed(correct),
             ClearedTrackIds = new HashSet<string>(State.ClearedTrackIds.Concat(won)),
         };
-        return [new GameEffect.Stop(), new GameEffect.PersistProgress()];
+        return [new GameEffect.Stop(), new GameEffect.PersistProgress(), .. recorded];
     }
 
     /// Distinct listing tracks that are neither cleared nor in the current set: what AllNew and

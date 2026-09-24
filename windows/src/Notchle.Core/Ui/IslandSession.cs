@@ -13,13 +13,16 @@ public sealed class IslandSession
         _clock = clock ?? TimeProvider.System;
         Behavior = new IslandBehavior(_clock);
         Quit = new QuitConfirmation(_clock);
+        ClearHistoryConfirmation = new QuitConfirmation(_clock);
         Behavior.Changed += () =>
         {
             if (!Behavior.IsExpanded)
             {
                 ShowingSettings = false;
                 FocusedField = null;
+                Tab = IslandTab.Play; // the island always opens on the game
                 Quit.Disarm(); // a confirmation nobody can see can't be confirmed
+                ClearHistoryConfirmation.Disarm();
             }
         };
     }
@@ -29,7 +32,17 @@ public sealed class IslandSession
     public QuitConfirmation Quit { get; }
     public GameState State { get; private set; } = new() { Config = GameConfig.Default };
 
+    /// The two-step "Clear history" at the bottom of the History tab (same timing as quit).
+    public QuitConfirmation ClearHistoryConfirmation { get; }
+
     public Action<GameAction> Send { get; set; } = _ => { };
+    /// Forgets the play history (the view model's ClearHistory); called on the confirming press.
+    public Action ClearHistory { get; set; } = () => { };
+    /// Play or History. The game keeps running while History is shown.
+    public IslandTab Tab { get; private set; } = IslandTab.Play;
+    /// The History tab is what the island shows (not covered by settings).
+    public bool ShowingHistory => Tab == IslandTab.History && !ShowingSettings;
+    public bool ClearHistoryArmed => ClearHistoryConfirmation.IsArmed;
     /// Turns the link field into a source. The demo swaps it for a fake.
     public Func<string, SourceRef?> ParseSource { get; set; } = SourceRefParser.TryParse;
 
@@ -78,10 +91,31 @@ public sealed class IslandSession
 
     public IslandIndicator Indicator() => IslandIndicator.For(State, Now, SnippetStart, CelebrationStart, SetEndedAt);
 
-    public IslandScreen Screen(AppSettings settings, string playerName, bool playerPlaysFullTrack) =>
-        ShowingSettings
-            ? IslandScreens.Settings(settings, playerName)
-            : IslandScreens.Build(State, TitleText, ArtistText, UrlMessage, playerPlaysFullTrack);
+    /// <paramref name="history"/>: the whole play history, oldest first (the spoiler rule is
+    /// applied here). <paramref name="zone"/>: day groups, local time by default.
+    /// <paramref name="artworkUrl"/>: the current track's cover (answer screens only).
+    public IslandScreen Screen(AppSettings settings, string playerName, bool playerPlaysFullTrack,
+        IReadOnlyList<HistoryEntry>? history = null, TimeZoneInfo? zone = null, Uri? artworkUrl = null) =>
+        ShowingSettings ? IslandScreens.Settings(settings, playerName)
+        : ShowingHistory ? HistoryScreen(history ?? [], zone)
+        : IslandScreens.Build(State, TitleText, ArtistText, UrlMessage, playerPlaysFullTrack, artworkUrl);
+
+    private (IReadOnlyList<HistoryEntry> History, GameState State, bool Armed, long Minute, TimeZoneInfo? Zone, IslandScreen.History Screen)? _historyMemo;
+
+    /// The History screen, rebuilt only when the history, the game state, the clear
+    /// confirmation or the minute changes (the view redraws up to 30 times a second).
+    private IslandScreen.History HistoryScreen(IReadOnlyList<HistoryEntry> history, TimeZoneInfo? zone)
+    {
+        var now = Now;
+        var minute = now.ToUnixTimeSeconds() / 60;
+        var armed = ClearHistoryArmed;
+        if (_historyMemo is { } m && ReferenceEquals(m.History, history) && ReferenceEquals(m.State, State)
+            && m.Armed == armed && m.Minute == minute && ReferenceEquals(m.Zone, zone))
+            return m.Screen;
+        var screen = HistoryRules.Screen(history, State, now, armed, zone);
+        _historyMemo = (history, State, armed, minute, zone, screen);
+        return screen;
+    }
 
     public void RequestFocus(IslandField? field)
     {
@@ -127,7 +161,7 @@ public sealed class IslandSession
     public bool HandleKey(IslandKey key)
     {
         var command = IslandRules.Command(key, State.Phase, FocusedField, ShowingSettings, State.Config, QuitArmed,
-            GameEngine.AvailableNewCount(State));
+            GameEngine.AvailableNewCount(State), ShowingHistory);
         if (command is null) return false;
         Perform(command);
         return true;
@@ -150,7 +184,36 @@ public sealed class IslandSession
             case IslandCommand.Restart: Restart(); break;
             case IslandCommand.Quit: PressQuit(); break;
             case IslandCommand.DisarmQuit: Quit.Disarm(); break;
+            case IslandCommand.ShowTab t: ShowTab(t.Tab); break;
         }
+    }
+
+    /// The header switch / Ctrl+1 / Ctrl+2. Closes settings; back on Play the keyboard returns
+    /// to the field the phase shows. Leaving History disarms "Clear history".
+    public void ShowTab(IslandTab tab)
+    {
+        ShowingSettings = false;
+        if (tab == Tab) return;
+        Tab = tab;
+        ClearHistoryConfirmation.Disarm();
+        if (tab == IslandTab.Play)
+            RequestFocus(IslandRules.ShowsGuessFields(State.Phase) ? FocusedFieldOr(IslandField.Title)
+                : IslandRules.ShowsUrlField(State.Phase) ? IslandField.Url : null);
+        else
+            RequestFocus(null);
+    }
+
+    private IslandField FocusedFieldOr(IslandField fallback) =>
+        FocusedField is IslandField.Title or IslandField.Artist ? FocusedField.Value : fallback;
+
+    /// "Clear history": the first press arms "Clear all history?", a second one within
+    /// QuitConfirmation.Window clears. Returns true when this press cleared.
+    public bool PressClearHistory()
+    {
+        if (!ShowingHistory) { ClearHistoryConfirmation.Disarm(); return false; }
+        if (!ClearHistoryConfirmation.Press()) return false;
+        ClearHistory();
+        return true;
     }
 
     /// The quit button / Ctrl+N. First press arms "Quit playlist?"; a second one within

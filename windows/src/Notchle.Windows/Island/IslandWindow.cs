@@ -46,6 +46,7 @@ public sealed class IslandWindow : Window
     private IslandIndicator? _lastIndicator;
     /// The quit capsule as last drawn: it reverts by itself after 3 s, so redraw when that flips.
     private bool _quitArmedShown;
+    private bool _clearArmedShown;
     private int _appliedFocusToken = -1;
     /// Focus still has to land in a field (the expanded content may not be visible yet).
     private bool _focusPending;
@@ -55,7 +56,7 @@ public sealed class IslandWindow : Window
     public IslandWindow(NotchViewModel vm)
     {
         _vm = vm;
-        Session = new IslandSession { Send = a => _vm.Send(a) };
+        Session = new IslandSession { Send = a => _vm.Send(a), ClearHistory = () => _vm.ClearHistory() };
         // Created after the base constructor so the island, not the overlay, is the app's first window.
         _confetti = new ConfettiOverlayWindow();
 
@@ -75,7 +76,8 @@ public sealed class IslandWindow : Window
         Top = 0;
 
         _reduceMotion = IslandTheme.ReduceMotion;
-        _view = new IslandView(Session, vm, IslandTheme.ReadAccent());
+        _view = new IslandView(Session, vm, IslandTheme.ReadAccent(),
+            new ArtworkImages(Shell.AppPaths.ArtworkDirectory, Playback.Http.Shared));
         Content = _view;
         _lastState = vm.State;
         Session.StateDidChange(null, vm.State);
@@ -255,7 +257,14 @@ public sealed class IslandWindow : Window
             : requested is { } r ? _view.FieldFor(r)
             : Session.FocusedField is { } f ? _view.FieldFor(f)
             : _view.FieldFor(IslandField.Url) ?? _view.FieldFor(IslandField.Title);
-        if (target is null) { _clickTarget = null; return true; } // no field in this phase
+        if (target is null)
+        {
+            _clickTarget = null;
+            // History (no text box): the island itself keeps the keys, for Esc / Ctrl+1.
+            if (Session.ShowingHistory && !_view.IsKeyboardFocusWithin) Keyboard.Focus(_view);
+            _appliedFocusToken = Session.FocusToken;
+            return true; // no field in this phase
+        }
         if (!target.IsVisible) return false;
         _clickTarget = null;
         _appliedFocusToken = Session.FocusToken;
@@ -340,6 +349,11 @@ public sealed class IslandWindow : Window
         if (Session.QuitArmed != _quitArmedShown)
         {
             _quitArmedShown = Session.QuitArmed;
+            _dirty = true;
+        }
+        if (Session.ClearHistoryArmed != _clearArmedShown)
+        {
+            _clearArmedShown = Session.ClearHistoryArmed;
             _dirty = true;
         }
         if (_dirty || !settled || live || !Equals(indicator, _lastIndicator))

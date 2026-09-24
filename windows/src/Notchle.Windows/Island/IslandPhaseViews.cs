@@ -2,6 +2,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using Notchle.Core;
 using Notchle.Core.Ui;
 
@@ -18,6 +20,8 @@ internal sealed class IslandContext
     public required IslandTextField ArtistField { get; init; }
     /// Re-render after a click changed session state.
     public required Action Changed { get; init; }
+    /// Album covers (answer screens and history rows only).
+    public ArtworkImages Artwork { get; init; } = ArtworkImages.None;
 
     // One path for every action (the session forwards to the view model), so what a test or
     // the window hooks on Session.Send sees every button.
@@ -66,6 +70,7 @@ internal abstract class PhaseView : DockPanel
         IslandScreen.SetEnd s => new SetEndView(s, ctx),
         IslandScreen.Error e => new ErrorView(e, ctx),
         IslandScreen.Settings => new SettingsView(ctx),
+        IslandScreen.History h => new HistoryView(h, ctx),
         _ => throw new ArgumentOutOfRangeException(nameof(screen), screen, null),
     };
 
@@ -294,8 +299,22 @@ internal sealed class AnswerView : PhaseView
         // ↺ restarts the whole song from 0:00; the answer stays on screen.
         var restart = RestartButton.Create(IslandScreen.Answer.RestartLabel, ctx);
         Top(Ui.Bar(Ui.Row(6, icon, headline), Ui.Row(8, restart, _eq), 22));
-        Top(Ui.Text(screen.Title, 19, IslandTheme.Primary, FontWeights.Bold), 10);
-        Top(Ui.Text(screen.Artists, 13, IslandTheme.Secondary, FontWeights.Medium), 2);
+        // Cover left of title / artists. Without one (not resolved, offline) it collapses and
+        // the texts sit where they always did.
+        _ctx = ctx;
+        _cover = new CoverImage(64, 8, shadow: true) { Margin = new Thickness(0, 0, 12, 0) };
+        _coverTrackId = ctx.Session.State.CurrentTrack?.Id ?? "";
+        var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        texts.Children.Add(Ui.Text(screen.Title, 19, IslandTheme.Primary, FontWeights.Bold));
+        var artists = Ui.Text(screen.Artists, 13, IslandTheme.Secondary, FontWeights.Medium);
+        artists.Margin = new Thickness(0, 2, 0, 0);
+        texts.Children.Add(artists);
+        var row = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(_cover, Dock.Left);
+        row.Children.Add(_cover);
+        row.Children.Add(texts);
+        Top(row, 10);
+        ShowCover(animate: false);
         UIElement? hint = screen.PreviewHint is { } h
             ? Ui.Row(5, Icons.Info(IslandTheme.Tertiary, 11), Ui.Text(h, 11, IslandTheme.Tertiary, FontWeights.Medium))
             : null;
@@ -304,8 +323,65 @@ internal sealed class AnswerView : PhaseView
         Fill();
     }
 
+    private readonly IslandContext _ctx;
+    private readonly CoverImage _cover;
+    private readonly string _coverTrackId;
+
     public override bool Accepts(IslandScreen screen) => Equals(screen, _screen);
-    public override void Update(IslandScreen screen, DateTimeOffset now, double seconds) => _eq.Update(seconds, playing: true);
+
+    public override void Update(IslandScreen screen, DateTimeOffset now, double seconds)
+    {
+        _eq.Update(seconds, playing: true);
+        ShowCover(animate: true);
+    }
+
+    /// Only this screen's ArtworkUrl (set through IslandRules.RevealedArtwork) is ever drawn.
+    private void ShowCover(bool animate)
+    {
+        var image = _ctx.Artwork.For(_coverTrackId, _screen.ArtworkUrl);
+        _cover.Show(image, animate);
+        _cover.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+}
+
+/// Rounded album cover (or, with a placeholder, a note while there is none). Fades in when the
+/// image arrives after the view was built.
+internal sealed class CoverImage : Border
+{
+    private readonly FrameworkElement? _placeholder;
+    private ImageSource? _shown;
+
+    public CoverImage(double size, double radius, bool shadow, bool placeholder = false)
+    {
+        Width = Height = size;
+        CornerRadius = new CornerRadius(radius);
+        VerticalAlignment = VerticalAlignment.Center;
+        Background = IslandTheme.FaintFill;
+        if (shadow) Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.45, Color = Colors.Black };
+        if (placeholder)
+        {
+            _placeholder = Icons.Note(IslandTheme.Tertiary, size * 0.45);
+            _placeholder.HorizontalAlignment = HorizontalAlignment.Center;
+            Child = _placeholder;
+        }
+    }
+
+    public bool HasImage => _shown is not null;
+
+    public void Show(ImageSource? image, bool animate)
+    {
+        if (ReferenceEquals(image, _shown)) return;
+        _shown = image;
+        Background = image is null ? IslandTheme.FaintFill : new ImageBrush(image) { Stretch = Stretch.UniformToFill };
+        if (_placeholder is not null) _placeholder.Visibility = image is null ? Visibility.Visible : Visibility.Collapsed;
+        if (image is not null && animate)
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)));
+        else
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+        }
+    }
 }
 
 // MARK: SetComplete / SetFailed

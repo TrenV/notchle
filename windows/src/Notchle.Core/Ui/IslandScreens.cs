@@ -52,7 +52,10 @@ public abstract record IslandScreen
     }
 
     /// Correct / Revealed: the only screen with the answer.
-    public sealed record Answer(bool Correct, string Headline, string Title, string Artists, string? PreviewHint) : IslandScreen
+    /// <paramref name="ArtworkUrl"/>: the album cover, only ever set through
+    /// IslandRules.RevealedArtwork (so never while the track is being guessed).
+    public sealed record Answer(bool Correct, string Headline, string Title, string Artists, string? PreviewHint,
+        Uri? ArtworkUrl = null) : IslandScreen
     {
         public const string NextLabel = "Next";
         /// Tooltip of the ↺ button: the whole song from 0:00.
@@ -76,6 +79,20 @@ public abstract record IslandScreen
         public const string Heading = "Something went wrong";
         public const string ResetLabel = "Reset";
         public const string SkipLabel = "Skip";
+    }
+
+    /// The History tab. <paramref name="Stats"/> is null and <paramref name="EmptyText"/> set when
+    /// nothing is visible. <paramref name="HiddenCount"/>: entries held back by the spoiler rule.
+    /// <paramref name="CanClear"/>: there is anything to clear.
+    public sealed record History(HistoryStatsRow? Stats, IReadOnlyList<HistoryDay> Days, string? EmptyText,
+        int HiddenCount, bool CanClear, bool ClearArmed) : IslandScreen
+    {
+        /// Everything drawn, as one string: the view rebuilds only when this changes.
+        public string Fingerprint =>
+            string.Join("\u001f", new object?[] { Stats, EmptyText, HiddenCount, CanClear, ClearArmed }
+                .Concat(Days.SelectMany(d => new object[] { d.Heading }.Concat(d.Rows))));
+
+        public string? HiddenNote => HistoryRules.HiddenNote(HiddenCount);
     }
 
     public sealed record Settings(PlayerMode Mode, string Snippets, string NowUsing, string ConnectHint) : IslandScreen
@@ -102,6 +119,8 @@ public static class KeyHints
     public const string CtrlShiftS = "Ctrl+Shift+S";
     public const string CtrlShiftN = "Ctrl+Shift+N";
     public const string CtrlN = "Ctrl+N";
+    public const string Ctrl1 = "Ctrl+1";
+    public const string Ctrl2 = "Ctrl+2";
     public const string Hotkey = "Ctrl+Alt+N";
 }
 
@@ -112,8 +131,10 @@ public static class IslandScreens
 
     /// The phase screen. <paramref name="title"/> / <paramref name="artist"/> are what the
     /// player typed (for the Wrong chips).
+    /// <paramref name="artworkUrl"/>: the view model's CurrentArtworkUrl; it reaches the screen
+    /// only in Correct / Revealed (IslandRules.RevealedArtwork).
     public static IslandScreen Build(GameState state, string title, string artist, string? urlMessage,
-        bool playerPlaysFullTrack)
+        bool playerPlaysFullTrack, Uri? artworkUrl = null)
     {
         var config = state.Config;
         switch (state.Phase)
@@ -146,14 +167,16 @@ public static class IslandScreens
                 var answer = IslandRules.RevealedAnswer(state);
                 return new IslandScreen.Answer(true,
                     $"Got it in {IslandRules.SecondsLabel(IslandRules.Seconds(c.TierIndex, config))}",
-                    answer?.Title ?? "–", answer?.Artists ?? "", PreviewHint(playerPlaysFullTrack));
+                    answer?.Title ?? "–", answer?.Artists ?? "", PreviewHint(playerPlaysFullTrack),
+                    IslandRules.RevealedArtwork(state, artworkUrl));
             }
             case GamePhase.Revealed r:
             {
                 var answer = IslandRules.RevealedAnswer(state);
                 return new IslandScreen.Answer(false,
                     r.Verdict is null ? "You gave up. It was" : "Out of tries. It was",
-                    answer?.Title ?? "–", answer?.Artists ?? "", PreviewHint(playerPlaysFullTrack));
+                    answer?.Title ?? "–", answer?.Artists ?? "", PreviewHint(playerPlaysFullTrack),
+                    IslandRules.RevealedArtwork(state, artworkUrl));
             }
             case GamePhase.SetComplete sc:
                 return SetEnd(state, true, sc.CorrectCount);

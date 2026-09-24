@@ -38,6 +38,14 @@ public static class IslandSnapshots
         public int TrackIndex { get; init; } = 6;
         /// Tests render their own state.
         public GameState? State { get; init; }
+        /// The History tab instead of the game.
+        public bool History { get; init; }
+        /// The play history the view model holds (oldest first); SampleHistory by default.
+        public IReadOnlyList<HistoryEntry>? Entries { get; init; }
+        /// First press of "Clear history".
+        public bool ClearArmed { get; init; }
+        /// Album covers available (generated in code: no disk, no network).
+        public bool Covers { get; init; }
     }
 
     private static readonly Verdict HalfRight = new(true, false);
@@ -83,7 +91,70 @@ public static class IslandSnapshots
         new("37-set-failed-7-new", new GamePhase.SetFailed(13)) { State = IslandDemoGame.SetEndState(complete: false, newAvailable: 7) },
         new("38-set-failed-no-new", new GamePhase.SetFailed(13)) { State = IslandDemoGame.SetEndState(complete: false, newAvailable: 0) },
         new("39-set-complete-no-new", new GamePhase.SetComplete(20)) { State = IslandDemoGame.SetEndState(complete: true, newAvailable: 0) },
+        new("44-history", new GamePhase.Guessing(0)) { History = true, Covers = true },
+        new("45-history-empty", new GamePhase.Idle()) { History = true, Entries = [] },
+        new("46-history-clear-armed", new GamePhase.SetFailed(14)) { History = true, ClearArmed = true, Covers = true },
+        new("47-correct-cover", new GamePhase.Correct(0)) { Covers = true },
+        new("48-revealed-cover", new GamePhase.Revealed(null)) { Covers = true, FullTrack = false },
+        new("49-correct-cover-offline", new GamePhase.Correct(1)),
+        new("50-history-no-covers", new GamePhase.Idle()) { History = true },
     ];
+
+    internal static readonly Uri SampleCoverUrl = new("https://image-cdn-fa.spotifycdn.com/image/snapshot");
+
+    /// A play history for the snapshots, oldest first, over three days, from another playlist.
+    /// The last entries are demo tracks of the scenarios' current set, so a scenario in the middle
+    /// of that set ("37-history") shows the spoiler rule hiding them; after the set they show.
+    internal static IReadOnlyList<HistoryEntry> SampleHistory { get; } = BuildSampleHistory();
+
+    private static IReadOnlyList<HistoryEntry> BuildSampleHistory()
+    {
+        (string Id, string Title, string[] Artists, string Listing, double HoursAgo, int? Tier, int Wrong, int Skips, bool Cover)[] plays =
+        [
+            ("h1", "Harbour Lights", ["Clara Wynn"], "Late Night Drive", 50, 0, 0, 0, true),
+            ("h2", "Tangerine Motel", ["The Low Suns", "Ada Frost"], "Late Night Drive", 49.5, 2, 1, 1, true),
+            ("h3", "Paper Planes Home", ["Milo Grey"], "Late Night Drive", 49, null, 1, 2, false),
+            ("h4", "Cold Brew Morning", ["Sofia Lark"], "Sunday Coffee", 26, 1, 1, 0, true),
+            ("h5", "Static Hearts", ["Glass Arcade"], "Sunday Coffee", 25.8, 0, 0, 0, true),
+            ("h6", "Blue Hour", ["Nina Cole"], "Sunday Coffee", 3, null, 3, 0, true),
+            ("h7", "Tidal", ["Oren Vale"], "Sunday Coffee", 2, 0, 0, 0, false),
+            ("h8", "Sundown Parade", ["The Kettles"], "Sunday Coffee", 0.5, 1, 0, 1, true),
+        ];
+        var entries = plays.Select((p, i) => new HistoryEntry(
+            new Guid(i + 1, 0, 0, new byte[8]), SnapshotNow.AddHours(-p.HoursAgo), p.Id, p.Title, p.Artists,
+            p.Listing, new SourceRef(SourceKind.Playlist, "history"), p.Tier is not null, p.Tier, p.Wrong, p.Skips,
+            p.Cover ? SampleCoverUrl : null)).ToList();
+        // Played in the scenarios' current set (demo0, demo1): hidden until the set ends.
+        foreach (var (track, i) in IslandDemoGame.Tracks.Take(2).Select((t, i) => (t, i)))
+            entries.Add(new HistoryEntry(new Guid(100 + i, 0, 0, new byte[8]), SnapshotNow.AddMinutes(-4 + i), track.Id,
+                track.Title, track.Artists, "Notchle Demo Mix", IslandDemoGame.DemoSource, i == 0, i == 0 ? 0 : null, i, 0,
+                SampleCoverUrl));
+        return entries;
+    }
+
+    /// A made-up cover per track (gradient with a note), frozen; no image files needed.
+    internal static ImageSource SampleCover(string trackId)
+    {
+        var hue = (uint)trackId.Sum(c => c * 37) % 360; // stable across runs (string hashes are not)
+        Color FromHue(double h, double l)
+        {
+            var c = (1 - Math.Abs(2 * l - 1)) * 0.65;
+            var x = c * (1 - Math.Abs(h / 60 % 2 - 1));
+            var m = l - c / 2;
+            var (r, g, b) = h switch { < 60 => (c, x, 0.0), < 120 => (x, c, 0.0), < 180 => (0.0, c, x), < 240 => (0.0, x, c), < 300 => (x, 0.0, c), _ => (c, 0.0, x) };
+            return Color.FromRgb((byte)((r + m) * 255), (byte)((g + m) * 255), (byte)((b + m) * 255));
+        }
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.DrawRectangle(new LinearGradientBrush(FromHue(hue, 0.55), FromHue((hue + 70) % 360, 0.3), 45), null, new Rect(0, 0, 128, 128));
+            dc.DrawEllipse(IslandTheme.Frozen(Colors.White, 0.18), null, new Point(84, 50), 34, 34);
+        }
+        var bitmap = new RenderTargetBitmap(128, 128, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
+    }
 
     /// Writes one PNG per scenario into <paramref name="directory"/>. Runs on an STA thread of
     /// its own when called from a non-STA thread.
@@ -136,6 +207,8 @@ public static class IslandSnapshots
         var vm = new NotchViewModel
         {
             State = state,
+            History = sc.Entries ?? SampleHistory,
+            CurrentArtworkUrl = sc.Covers ? SampleCoverUrl : null,
             Settings = new AppSettings { PlayerMode = sc.PlayerMode },
             PlayerName = sc.PlayerMode == PlayerMode.Preview ? "30-second previews" : "Spotify Connect",
             PlayerPlaysFullTrack = sc.FullTrack,
@@ -154,9 +227,15 @@ public static class IslandSnapshots
         if (sc.Expanded) session.Behavior.PointerMoved(true);
         session.ShowingSettings = sc.Settings;
         if (sc.QuitArmed) session.PressQuit();
+        if (sc.History) session.ShowTab(IslandTab.History);
+        if (sc.ClearArmed) session.PressClearHistory();
 
         // Fixed accent (Windows' default blue) so the PNGs do not depend on the CI machine.
-        var view = new IslandView(session, vm, SnapshotAccent)
+        var covers = new Dictionary<string, ImageSource>();
+        var artwork = sc.Covers
+            ? ArtworkImages.FromMemory(id => covers.TryGetValue(id, out var c) ? c : covers[id] = SampleCover(id))
+            : ArtworkImages.None;
+        var view = new IslandView(session, vm, SnapshotAccent, artwork)
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Top,

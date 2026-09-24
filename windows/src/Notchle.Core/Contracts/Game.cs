@@ -118,6 +118,13 @@ public abstract record GameEffect
     public sealed record RestartTrack(Track Track) : GameEffect;
     /// ClearedTrackIds changed; persist it.
     public sealed record PersistProgress : GameEffect;
+    /// The outcome of Track was just decided (Correct, or Missed via a last-tier wrong guess,
+    /// GiveUp, Skip at the last tier, or Next from Error). Emitted exactly once per track, in
+    /// the same effect list as the transition's other effects, always last. WrongGuesses and
+    /// Skips count this track's wrong submissions and tier-advancing skips (a Skip at the last
+    /// tier is GiveUp and not counted); both reset per track and on ReplaySet.
+    /// The platform stamps date and listing and appends it to the play history.
+    public sealed record RecordOutcome(Track Track, TrackOutcome Outcome, int WrongGuesses, int Skips) : GameEffect;
 }
 
 public interface IAnswerJudge

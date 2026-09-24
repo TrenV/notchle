@@ -13,14 +13,23 @@ public sealed class NotchViewModel : INotifyPropertyChanged
     private AppSettings _settings = new();
     private string _playerName = "";
     private bool _playerPlaysFullTrack;
+    private IReadOnlyList<HistoryEntry> _history = [];
+    private Uri? _currentArtworkUrl;
 
     public GameState State { get => _state; set => Set(ref _state, value); }
     public AppSettings Settings { get => _settings; set => Set(ref _settings, value); }
     public string PlayerName { get => _playerName; set => Set(ref _playerName, value); }
     public bool PlayerPlaysFullTrack { get => _playerPlaysFullTrack; set => Set(ref _playerPlaysFullTrack, value); }
+    /// Every recorded track, oldest first (agreed addition, 2026-09-24). The island applies the
+    /// spoiler rule (HistoryRules.Visible) before showing any of it.
+    public IReadOnlyList<HistoryEntry> History { get => _history; set => Set(ref _history, value); }
+    /// The current track's album cover, set only once its answer shows (Correct / Revealed).
+    public Uri? CurrentArtworkUrl { get => _currentArtworkUrl; set => Set(ref _currentArtworkUrl, value); }
 
     public Action<GameAction> Send { get; set; } = _ => { };
     public Action<AppSettings> UpdateSettings { get; set; } = _ => { };
+    /// Forgets the play history (the History tab's two-step "Clear history").
+    public Action ClearHistory { get; set; } = () => { };
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
