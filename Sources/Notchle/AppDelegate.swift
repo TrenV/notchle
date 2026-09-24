@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let coordinator = AppCoordinator()
+        let coordinator = AppCoordinator(spotifyConnect: AppCoordinator.sharedSpotifyConnect)
         let panel = NotchPanelController(model: coordinator.model)
         panel.show()
         self.coordinator = coordinator

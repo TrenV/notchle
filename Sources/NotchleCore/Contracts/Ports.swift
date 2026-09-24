@@ -72,6 +72,10 @@ public enum PlayerError: Error, Sendable, Hashable {
 /// Settings the platform layer persists alongside progress.
 public enum PlayerMode: String, Sendable, Codable, CaseIterable {
     case spotifyApp
+    /// Full tracks started through the Spotify Web API (Connect), so the Spotify app's window
+    /// never comes forward. Needs Premium and the user's own Spotify developer app. The raw
+    /// value matches the Windows port's `SpotifyConnect` in progress.json.
+    case spotifyConnect
     case preview
 }
 

@@ -50,16 +50,46 @@ Quit) and the game in the notch.
 The app is signed only locally (no Apple Developer ID), so **macOS asks again after every
 rebuild**. That's expected.
 
+### Full songs without the Spotify window (Spotify Connect)
+
+In the plain **Spotify app** mode, Spotify briefly shows its own window on every song change
+(Spotify brings itself forward when it's told to play a track; measured, and hiding,
+minimising or moving the window doesn't stop it). The **Spotify (no window, Premium)** mode
+starts songs through the Spotify Web API instead, so the app can stay hidden. Setup:
+
+1. You need Spotify **Premium** and the Spotify desktop app open and signed in on this Mac
+   (its window can stay hidden).
+2. Create a developer app at <https://developer.spotify.com/dashboard> → **Create app**:
+   - Redirect URI: `http://127.0.0.1/callback` (exactly that; Spotify rejects `localhost`).
+   - API: **Web API**.
+   - Under **User Management**, add the Spotify account you'll play with.
+3. In Notchle: open the notch → gear → **Spotify (no window, Premium)** → paste the app's
+   **Client ID** → **Connect Spotify**. Your browser opens Spotify's consent page; approve it
+   and close the tab. Settings then show *Connected as <your name>*.
+
+The Client ID is kept in Notchle's preferences (`defaults read com.trenv.notchle spotifyClientID`),
+the sign-in tokens in your login Keychain (item
+`com.trenv.notchle.spotify`). **Sign out** in settings removes them. Because the app is only
+signed locally, macOS may ask to let Notchle use that Keychain item again after a rebuild.
+
+Status: implemented and tested against a simulated Spotify only. Whether Spotify really
+stays hidden with a real account hasn't been observed yet.
+
+Settings also has a **Quit Notchle** button, for Macs where the ♪ menu-bar icon ends up
+hidden behind the notch.
+
 ### Start at login (optional)
 
 System Settings → General → Login Items → **+** → pick Notchle in Applications.
 
 ### Uninstall
 
-Quit it from the ♪ menu, then:
+Quit it from the ♪ menu (or **Quit Notchle** in settings), then:
 
 ```bash
 rm -rf /Applications/Notchle.app ~/Library/Application\ Support/Notchle
+defaults delete com.trenv.notchle                                    # Spotify Connect Client ID
+security delete-generic-password -s com.trenv.notchle.spotify        # Spotify Connect sign-in
 ```
 
 ---

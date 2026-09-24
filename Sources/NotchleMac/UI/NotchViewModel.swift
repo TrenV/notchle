@@ -14,6 +14,8 @@ public final class NotchViewModel {
     /// "preview ends after 30s" hint.
     public var playerName: String = ""
     public var playerPlaysFullTrack: Bool = true
+    /// Spotify Connect sign-in state (additive; nil in demos and tests that don't need it).
+    public var spotifyConnect: SpotifyConnectModel?
 
     @ObservationIgnored public var send: (GameAction) -> Void = { _ in }
     @ObservationIgnored public var updateSettings: (AppSettings) -> Void = { _ in }

@@ -101,6 +101,24 @@ public sealed class ProgressStoreTests : IDisposable
     }
 
     [Fact]
+    public void ReadsTheSwiftAppsSpotifyConnectMode()
+    {
+        // The macOS app's PlayerMode.spotifyConnect (raw value "spotifyConnect") is the same
+        // player as this port's SpotifyConnect, so it carries over instead of falling back.
+        var store = new ProgressStore(_root);
+        File.WriteAllText(store.FilePath, """
+            {
+              "clearedTrackIDs" : [],
+              "settings" : {
+                "config" : { "setSize" : 20, "snippetStart" : 30, "tiers" : [1, 2] },
+                "playerMode" : "spotifyConnect"
+              }
+            }
+            """);
+        Assert.Equal(PlayerMode.SpotifyConnect, store.Load().Settings.PlayerMode);
+    }
+
+    [Fact]
     public void SaveOverwritesPreviousFileAndLeavesNoTempFiles()
     {
         var store = new ProgressStore(_root);

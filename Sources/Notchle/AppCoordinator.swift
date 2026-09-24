@@ -32,7 +32,8 @@ final class AppCoordinator {
     init(
         source: TrackSource = EmbedTrackSource(),
         store: ProgressStore = AppCoordinator.defaultStore(),
-        makePlayer: @escaping @MainActor (PlayerMode) -> Player = AppCoordinator.makeDefaultPlayer
+        makePlayer: @escaping @MainActor (PlayerMode) -> Player = AppCoordinator.makeDefaultPlayer,
+        spotifyConnect: SpotifyConnectModel? = nil
     ) {
         self.source = source
         self.store = store
@@ -46,6 +47,7 @@ final class AppCoordinator {
         )
         self.player = makePlayer(progress.settings.playerMode)
         self.model = NotchViewModel(state: engine.state, settings: progress.settings)
+        model.spotifyConnect = spotifyConnect
         publishPlayer()
         model.send = { [weak self] action in self?.send(action) }
         model.updateSettings = { [weak self] new in self?.apply(settings: new) }
@@ -174,9 +176,14 @@ final class AppCoordinator {
     static func makeDefaultPlayer(_ mode: PlayerMode) -> Player {
         switch mode {
         case .spotifyApp: SpotifyAppPlayer()
+        case .spotifyConnect: SpotifyConnectPlayer(api: sharedSpotifyConnect.api)
         case .preview: PreviewPlayer()
         }
     }
+
+    /// One Spotify Connect sign-in for the app: the settings view and every Connect player share
+    /// its `SpotifyWebAPI` (and so its token refresh).
+    static let sharedSpotifyConnect = SpotifyConnectModel.live()
 
     static func defaultStore() -> ProgressStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first

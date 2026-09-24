@@ -30,6 +30,9 @@ public enum UISnapshots {
         var secondsInPhase: Double = 0.3
         /// "Quit playlist?" armed in the header.
         var quitArmed = false
+        /// Settings with "Spotify (no window, Premium)" chosen, in this sign-in state.
+        var connect: SpotifyConnectStatus?
+        var clientID = ""
     }
 
     static var scenarios: [Scenario] {
@@ -81,6 +84,15 @@ public enum UISnapshots {
             Scenario(name: "37-quit-armed", phase: .guessing(tierIndex: 0), title: "Paper", quitArmed: true),
             Scenario(name: "38-quit-armed-correct", phase: .correct(tierIndex: 0), quitArmed: true),
             Scenario(name: "39-quit-armed-pill", phase: .playingSnippet(tierIndex: 1), hasNotch: false, quitArmed: true),
+            Scenario(name: "40-settings-connect-signed-out", phase: .guessing(tierIndex: 0), settings: true, connect: .signedOut),
+            Scenario(name: "41-settings-connect-client-id", phase: .guessing(tierIndex: 0), settings: true, connect: .signedOut,
+                     clientID: "0123456789abcdef0123456789abcdef"),
+            Scenario(name: "42-settings-connect-connecting", phase: .guessing(tierIndex: 0), settings: true, connect: .connecting,
+                     clientID: "0123456789abcdef0123456789abcdef"),
+            Scenario(name: "43-settings-connect-failed", phase: .guessing(tierIndex: 0), settings: true,
+                     connect: .failed("Spotify sign-in was cancelled (access_denied)"), clientID: "0123456789abcdef0123456789abcdef"),
+            Scenario(name: "44-settings-connect-connected", phase: .guessing(tierIndex: 0), settings: true,
+                     connect: .connected(displayName: "Tren")),
         ]
     }
 
@@ -126,6 +138,11 @@ public enum UISnapshots {
         let model = NotchViewModel(state: sc.state ?? sampleState(sc.phase, index: sc.trackIndex))
         model.playerName = "Spotify app"
         model.playerPlaysFullTrack = sc.fullTrack
+        if let status = sc.connect {
+            model.settings.playerMode = .spotifyConnect
+            model.playerName = "Spotify (full songs, no window)"
+            model.spotifyConnect = SpotifyConnectModel.snapshot(status: status, clientID: sc.clientID)
+        }
         let ui = NotchUIState(model: model)
         ui.isExpanded = sc.expanded
         ui.titleText = sc.title
