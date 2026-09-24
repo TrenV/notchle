@@ -22,5 +22,6 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "NotchleMacTests", dependencies: ["NotchleMac", "NotchleCore"]),
+        .testTarget(name: "NotchleAppTests", dependencies: ["Notchle", "NotchleMac", "NotchleCore"]),
     ]
 )

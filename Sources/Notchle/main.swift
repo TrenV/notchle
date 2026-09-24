@@ -1,8 +1,7 @@
 import AppKit
-import NotchleCore
-import NotchleMac
 
-// Placeholder entry point; the integrator replaces this with the AppCoordinator in Wave 3.
 let app = NSApplication.shared
+let delegate = MainActor.assumeIsolated { AppDelegate() }
+app.delegate = delegate
 app.setActivationPolicy(.accessory)
-print("Notchle scaffold")
+app.run()
