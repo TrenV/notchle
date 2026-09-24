@@ -6,10 +6,38 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- 10.0.22621: Windows.Media.Playback (WinRT) for the preview player. -->
     <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Only for the tray icon (NotifyIcon); everything else is WPF. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFO0003 wants WinForms' ApplicationHighDpiMode instead of the manifest. That applies to
+         WinForms apps (Application.Run); this is a WPF app, which takes DPI awareness from the
+         manifest, and WinForms is only here for the tray icon. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <AssemblyName>Notchle.Windows</AssemblyName>
+    <RootNamespace>Notchle.Windows</RootNamespace>
+  </PropertyGroup>
+
+  <!-- UseWindowsForms adds these global usings, which make Application, MessageBox, Point, ...
+       ambiguous with WPF's. Tray code imports them explicitly instead. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Notchle.Windows.Tests" />
+  </ItemGroup>
+
+  <!-- CI: dotnet publish -r win-x64 -p:PublishSingleFile=true -self-contained -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
 </Project>

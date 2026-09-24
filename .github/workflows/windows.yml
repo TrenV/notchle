@@ -1,0 +1,80 @@
+name: Windows
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows build, tests, snapshots, publish
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+
+      - name: Build
+        run: dotnet build windows/Notchle.Windows.slnx -c Release
+
+      - name: Test Notchle.Core
+        run: dotnet test windows/tests/Notchle.Core.Tests -c Release --no-build --logger "console;verbosity=normal"
+
+      # Runs only here: WPF, WinRT media, DPAPI and the registry need Windows.
+      - name: Test Notchle.Windows
+        if: success() || failure()
+        run: dotnet test windows/tests/Notchle.Windows.Tests -c Release --no-build --logger "console;verbosity=normal"
+
+      # WinExe: Start-Process -Wait so the step waits for it and sees its exit code.
+      - name: Render UI snapshots
+        shell: pwsh
+        run: |
+          $exe = "windows/src/Notchle.Windows/bin/Release/net10.0-windows10.0.22621.0/Notchle.Windows.exe"
+          $out = Join-Path $PWD "snapshots"
+          $p = Start-Process -FilePath $exe -ArgumentList "--ui-snapshots", "`"$out`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Notchle.Windows.exe --ui-snapshots exited with $($p.ExitCode)" }
+          $pngs = @(Get-ChildItem $out -Filter *.png)
+          if ($pngs.Count -eq 0) { throw "no PNGs in $out" }
+          $pngs | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+
+      - name: Publish (self-contained single file, win-x64)
+        run: >
+          dotnet publish windows/src/Notchle.Windows/Notchle.Windows.csproj -c Release -r win-x64
+          --self-contained -p:PublishSingleFile=true -o publish
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-snapshots
+          path: snapshots/*.png
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Notchle-win-x64
+          path: publish/Notchle.Windows.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS (Swift tests + portable .NET tests)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+
+      - name: Swift tests
+        run: scripts/test.sh
+
+      # Builds the whole solution (Windows projects compile via EnableWindowsTargeting) and runs
+      # Notchle.Core.Tests.
+      - name: .NET build + Notchle.Core tests
+        if: success() || failure()
+        run: windows/scripts/test.sh
