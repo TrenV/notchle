@@ -152,7 +152,7 @@ public partial class App : Application
         var clientId = TextPrompt.Ask(
             "Connect Spotify",
             "Client id of your Spotify developer app (developer.spotify.com › Dashboard). " +
-            "Its redirect URI must be http://127.0.0.1/callback. Full tracks need Spotify Premium " +
+            "Its redirect URI must be http://127.0.0.1:43821/callback. Full tracks need Spotify Premium " +
             "and the Spotify app running on this PC. Note: Spotify's own app and the Windows media " +
             "flyout show the song, which spoils the answer.",
             settings.SpotifyClientId ?? "");

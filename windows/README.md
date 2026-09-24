@@ -89,8 +89,8 @@ Requirements:
 
 1. Spotify **Premium**, and the Spotify desktop app running on this PC and signed in.
 2. Your own Spotify developer app: <https://developer.spotify.com/dashboard> → Create app.
-   - Redirect URI: `http://127.0.0.1/callback`. Spotify rejects `localhost`. For a loopback
-     IP you register no port, and Notchle picks a free one on each sign-in.
+   - Redirect URI: `http://127.0.0.1:43821/callback`. Spotify rejects `localhost`, and the dashboard
+     refuses a loopback URI without a port. Notchle always listens on port 43821.
    - APIs used: Web API.
    - Since February 2026, a new Development Mode app allows 5 users. Add your account
      under *User Management*.

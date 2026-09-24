@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func helpTextNamesPremiumTheDashboardAndTheRedirect() {
-        #expect(R.spotifyConnectHelp == "Needs Premium and your own app at developer.spotify.com, redirect http://127.0.0.1/callback")
+        #expect(R.spotifyConnectHelp == "Needs Premium and your own app at developer.spotify.com, redirect http://127.0.0.1:43821/callback")
     }
 
     @Test func playerModeRawValueMatchesTheWindowsPort() throws {

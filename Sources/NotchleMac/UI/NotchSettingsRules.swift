@@ -21,7 +21,7 @@ public extension NotchUIRules {
     ]
 
     static let spotifyConnectHelp =
-        "Needs Premium and your own app at developer.spotify.com, redirect http://127.0.0.1/callback"
+        "Needs Premium and your own app at developer.spotify.com, redirect http://127.0.0.1:43821/callback"
 
     /// Which Connect controls the settings view shows. They never show track info.
     static func spotifyConnectControls(mode: PlayerMode, status: SpotifyConnectStatus?, clientID: String) -> SpotifyConnectControls {

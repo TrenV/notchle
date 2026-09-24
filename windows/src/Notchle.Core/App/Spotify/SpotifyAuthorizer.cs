@@ -15,7 +15,7 @@ public sealed class SpotifyAuthorizer(HttpClient http, ISpotifyTokenStore store,
     {
         if (string.IsNullOrWhiteSpace(clientId))
             throw new PlayerException(PlayerErrorKind.Unavailable, "Spotify Connect needs your Spotify client id (see the README)");
-        using var listener = LoopbackRedirectListener.Start();
+        using var listener = LoopbackRedirectListener.Start(SpotifyAccounts.CallbackPort);
         var redirect = SpotifyAccounts.RedirectUri(listener.Port);
         var verifier = Pkce.CreateVerifier();
         var state = Pkce.CreateState();

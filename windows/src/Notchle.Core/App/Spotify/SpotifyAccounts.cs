@@ -42,9 +42,11 @@ public static class SpotifyAccounts
     public static readonly Uri AuthorizeEndpoint = new("https://accounts.spotify.com/authorize");
     public static readonly Uri TokenEndpoint = new("https://accounts.spotify.com/api/token");
 
-    /// Spotify rejects "localhost"; loopback must be an IP literal. Register
-    /// "http://127.0.0.1/callback" (no port) in the developer dashboard: for loopback IP
-    /// literals Spotify accepts whatever port the authorization request names.
+    /// Spotify rejects "localhost"; loopback must be an IP literal. The dashboard refuses a
+    /// port-less loopback URI in practice (Tren, 2026-09-24), so Notchle always listens on this
+    /// fixed port and the dashboard gets exactly RedirectUriString.
+    public const int CallbackPort = 43821;
+    public const string RedirectUriString = "http://127.0.0.1:43821/callback";
     public static Uri RedirectUri(int port) => new($"http://127.0.0.1:{port}/callback");
 
     public static Uri AuthorizeUrl(string clientId, Uri redirectUri, string codeChallenge, string state)

@@ -60,7 +60,7 @@ starts songs through the Spotify Web API instead, so the app can stay hidden. Se
 1. You need Spotify **Premium** and the Spotify desktop app open and signed in on this Mac
    (its window can stay hidden).
 2. Create a developer app at <https://developer.spotify.com/dashboard> → **Create app**:
-   - Redirect URI: `http://127.0.0.1/callback` (exactly that; Spotify rejects `localhost`).
+   - Redirect URI: `http://127.0.0.1:43821/callback` (exactly that, port included; Spotify rejects `localhost`).
    - API: **Web API**.
    - Under **User Management**, add the Spotify account you'll play with.
 3. In Notchle: open the notch → gear → **Spotify (no window, Premium)** → paste the app's
@@ -135,7 +135,7 @@ Previews play without any login. For full songs:
 
 1. You need Spotify **Premium** and the Spotify desktop app open and signed in on the same PC.
 2. Create a developer app at <https://developer.spotify.com/dashboard> → **Create app**:
-   - Redirect URI: `http://127.0.0.1/callback` (exactly that; Spotify rejects `localhost`).
+   - Redirect URI: `http://127.0.0.1:43821/callback` (exactly that, port included; Spotify rejects `localhost`).
    - API: **Web API**.
    - Under **User Management**, add the Spotify account you'll play with.
 3. Copy the app's **Client ID**, then in Notchle: tray → **Connect Spotify…** → paste it.

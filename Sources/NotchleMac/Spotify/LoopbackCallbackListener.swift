@@ -2,7 +2,7 @@ import Foundation
 import Network
 import NotchleCore
 
-/// One-shot HTTP listener on 127.0.0.1:<free port> that catches Spotify's sign-in redirect.
+/// One-shot HTTP listener on 127.0.0.1:43821 (SpotifyAccounts.callbackPort) that catches Spotify's sign-in redirect.
 /// Answers everything but GET /callback with 404 (browsers also ask for /favicon.ico); the
 /// callback gets a small "You can close this tab" page. Request parsing is the pure
 /// `SpotifyAccounts.parseCallback(requestLine:expectedState:)`.
@@ -24,7 +24,8 @@ public final class LoopbackCallbackListener: SpotifyCallbackListening, @unchecke
     /// Starts listening and returns once the port is known.
     public static func start(expectedState: String) async throws -> LoopbackCallbackListener {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback),
+                                                     port: NWEndpoint.Port(integerLiteral: UInt16(SpotifyAccounts.callbackPort)))
         parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters)
         let callback = LoopbackCallbackListener(listener: listener, expectedState: expectedState)

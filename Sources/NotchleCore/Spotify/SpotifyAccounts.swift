@@ -38,9 +38,11 @@ public enum SpotifyAccounts {
     public static let authorizeEndpoint = URL(string: "https://accounts.spotify.com/authorize")!
     public static let tokenEndpoint = URL(string: "https://accounts.spotify.com/api/token")!
 
-    /// Spotify rejects "localhost"; loopback must be an IP literal. Register
-    /// "http://127.0.0.1/callback" (no port) in the developer dashboard: for loopback IP literals
-    /// Spotify accepts whatever port the authorization request names.
+    /// Spotify rejects "localhost"; loopback must be an IP literal. The dashboard refuses a
+    /// port-less loopback URI in practice (Tren, 2026-09-24), so Notchle always listens on this
+    /// fixed port and the dashboard gets exactly `redirectURIString`.
+    public static let callbackPort = 43821
+    public static let redirectURIString = "http://127.0.0.1:43821/callback"
     public static func redirectURI(port: Int) -> String { "http://127.0.0.1:\(port)/callback" }
 
     public static func authorizeURL(clientID: String, redirectURI: String, codeChallenge: String, state: String) -> URL {
