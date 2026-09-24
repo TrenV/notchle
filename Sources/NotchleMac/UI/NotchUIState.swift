@@ -46,6 +46,9 @@ public final class NotchUIState {
     public internal(set) var phaseStartedAt = Date()
     /// Bumped when a flash ends so the collapsed pill redraws.
     public private(set) var indicatorRefresh = 0
+    /// When "Quit playlist?" was armed; nil when it isn't. Expires after
+    /// `NotchUIRules.quitConfirmWindow` (settable in-module for snapshots).
+    public internal(set) var quitArmedAt: Date?
 
     public init(model: NotchViewModel) {
         self.model = model
@@ -86,6 +89,7 @@ public final class NotchUIState {
                 }
             }
             if case .playingSnippet = new.phase { snippetStart = now }
+            if !NotchUIRules.showsQuit(new.phase) { quitArmedAt = nil }
             // A field that is gone with the old phase no longer holds focus (so no longer "typing").
             switch focusedField {
             case .title?, .artist?: if !NotchUIRules.showsGuessFields(new.phase) { focusedField = nil }
@@ -167,8 +171,10 @@ public final class NotchUIState {
     @discardableResult
     public func evaluateAutoCollapse(now: Date = Date()) -> Bool {
         guard isExpanded else { mouseLeftAt = nil; return false }
+        // An armed "Quit playlist?" holds the panel open until it is answered or expires.
+        let busy = isTyping(now: now) || isQuitArmed(now: now)
         guard NotchUIRules.shouldAutoCollapse(expanded: isExpanded, mouseLeftAt: mouseLeftAt,
-                                              typing: isTyping(now: now), now: now) else { return false }
+                                              typing: busy, now: now) else { return false }
         collapse()
         return true
     }
@@ -176,6 +182,7 @@ public final class NotchUIState {
     public func collapse() {
         isExpanded = false
         showingSettings = false
+        quitArmedAt = nil
         mouseLeftAt = nil
         focusedField = nil
     }
@@ -200,6 +207,8 @@ public final class NotchUIState {
             requestFocus(nil)
         case .closeSettings: showingSettings = false
         case .focus(let field): requestFocus(field)
+        case .quit: quitPressed()
+        case .disarmQuit: disarmQuit()
         }
     }
 
@@ -225,6 +234,44 @@ public final class NotchUIState {
         if artist.isEmpty { requestFocus(.artist); return }
         lastKeyAt = nil                // submitted: no longer typing
         model.send(.submit(Guess(title: title, artist: artist)))
+    }
+
+    public func isQuitArmed(now: Date = Date()) -> Bool {
+        NotchUIRules.isQuitArmed(armedAt: quitArmedAt, now: now)
+    }
+
+    /// The header's quit button or ⌘N. First press arms "Quit playlist?" for
+    /// `quitConfirmWindow` seconds; a second press within it quits.
+    public func quitPressed(now: Date = Date()) {
+        guard NotchUIRules.showsQuit(phase) else { quitArmedAt = nil; return }
+        if isQuitArmed(now: now) {
+            confirmQuit()
+            return
+        }
+        quitArmedAt = now
+        if !isExpanded {                    // ⌘N on the collapsed panel: show the question
+            isExpanded = true
+            if !isHovering { mouseLeftAt = now }
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(NotchUIRules.quitConfirmWindow))
+            if self?.quitArmedAt == now { self?.quitArmedAt = nil }   // revert the capsule
+        }
+    }
+
+    public func disarmQuit() {
+        quitArmedAt = nil
+    }
+
+    /// Stops playback and goes back to an empty, focused URL field (a new playlist).
+    private func confirmQuit() {
+        quitArmedAt = nil
+        showingSettings = false
+        urlText = ""
+        urlMessage = nil
+        lastKeyAt = nil
+        model.send(.reset)
+        requestFocus(.url)
     }
 
     /// Replays the snippet (guess phases) or restarts the song (correct/revealed). The typed

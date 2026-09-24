@@ -119,6 +119,39 @@ struct RestartButton: View {
     }
 }
 
+/// Header button that quits the playlist, in two steps: ✕, then a red "Quit playlist?"
+/// capsule for `NotchUIRules.quitConfirmWindow` seconds; clicking that (or ⌘N) quits.
+struct QuitButton: View {
+    let ui: NotchUIState
+
+    var body: some View {
+        let armed = ui.isQuitArmed()
+        Button { ui.quitPressed() } label: {
+            Group {
+                if armed {
+                    Text("Quit playlist?")
+                        .font(.system(size: 11, weight: .bold))
+                        .fixedSize()                    // the listing name truncates instead
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 9)
+                        .frame(height: 20)
+                        .background(Capsule().fill(NotchPalette.red))
+                } else {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(NotchPalette.secondaryText)
+                        .frame(width: 20, height: 20)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(armed ? "Click again to quit (esc cancels)" : "Quit playlist (⌘N)")
+        .accessibilityLabel(armed ? "Confirm quit playlist" : "Quit playlist")
+        .animation(.easeOut(duration: 0.15), value: armed)
+    }
+}
+
 /// Three pills, one per tier ("5s 10s 15s"): used tiers red, current white, later dim.
 struct AttemptDots: View {
     let tiers: [Double]

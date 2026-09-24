@@ -53,8 +53,9 @@ import NotchleCore
     // MARK: Rendered proof: draw the real views, OCR the pixels.
 
     @MainActor
-    static func renderedText(_ phase: GamePhase, expanded: Bool = true) throws -> String {
-        let scenario = UISnapshots.Scenario(name: "test", phase: phase, expanded: expanded, state: state(phase))
+    static func renderedText(_ phase: GamePhase, expanded: Bool = true, quitArmed: Bool = false) throws -> String {
+        let scenario = UISnapshots.Scenario(name: "test", phase: phase, expanded: expanded, state: state(phase),
+                                            quitArmed: quitArmed)
         let data = try #require(UISnapshots.render(scenario))
         let image = try #require(NSBitmapImageRep(data: data)?.cgImage)
         let request = VNRecognizeTextRequest()
@@ -76,6 +77,18 @@ import NotchleCore
             #expect(!text.localizedCaseInsensitiveContains("Quill"), "OCR read: \(text)")
             #expect(!text.localizedCaseInsensitiveContains("Mabel"), "OCR read: \(text)")
         }
+    }
+
+    /// The armed "Quit playlist?" header is on screen (control) and the answer is not.
+    @MainActor
+    @Test(arguments: [GamePhase.playingSnippet(tierIndex: 0), .guessing(tierIndex: 1),
+                      .wrong(tierIndex: 0, verdict: Verdict(titleCorrect: false, artistCorrect: false))])
+    func armedQuitDoesNotLeak(_ phase: GamePhase) throws {
+        let text = try Self.renderedText(phase, quitArmed: true)
+        #expect(text.contains("Quit playlist"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Zanzibar"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Quill"), "OCR read: \(text)")
+        #expect(!text.localizedCaseInsensitiveContains("Mabel"), "OCR read: \(text)")
     }
 
     /// Positive control: the same pipeline does see the answer where it is allowed.

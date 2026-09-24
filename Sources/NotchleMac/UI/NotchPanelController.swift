@@ -9,7 +9,7 @@ import NotchleCore
 ///   follows screen changes.
 /// - Only the visible shape takes the mouse: the panel ignores mouse events everywhere else,
 ///   toggled from the pointer position, so the menu bar stays clickable around it.
-/// - Handles Return/Esc/Tab/⌘R/⌘⇧R/⌘⇧S and the edit shortcuts (an accessory app has no Edit menu, so
+/// - Handles Return/Esc/Tab/⌘R/⌘⇧R/⌘⇧S/⌘N and the edit shortcuts (an accessory app has no Edit menu, so
 ///   ⌘V would otherwise not paste into the URL field).
 @MainActor
 public final class NotchPanelController {
@@ -221,10 +221,12 @@ public final class NotchPanelController {
         guard let key = Self.keyInput(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers,
                                       modifiers: flags),
               let command = NotchUIRules.command(for: key, phase: model.state.phase, focused: ui.focusedField,
-                                                 settingsOpen: ui.showingSettings, config: model.state.config)
+                                                 settingsOpen: ui.showingSettings, config: model.state.config,
+                                                 quitArmed: ui.isQuitArmed())
         else { return false }
         ui.perform(command)
         if command == .collapse { releaseKeyboard() }
+        startCollapseTimerIfNeeded()   // ⌘N may have opened the panel
         return true
     }
 
@@ -239,6 +241,7 @@ public final class NotchPanelController {
             return mods == .shift ? .backTab : nil
         default:
             if mods == .command, characters?.lowercased() == "r" { return .commandR }
+            if mods == .command, characters?.lowercased() == "n" { return .commandN }
             if mods == [.command, .shift], characters?.lowercased() == "r" { return .commandShiftR }
             if mods == [.command, .shift], characters?.lowercased() == "s" { return .commandShiftS }
             return nil

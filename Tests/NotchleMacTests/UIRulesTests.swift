@@ -65,6 +65,8 @@ import NotchleCore
         #expect(k(.commandShiftR, guessing) == .perform)          // replay without opening
         #expect(k(.commandShiftR, .correct(tierIndex: 0)) == .perform)
         #expect(k(.commandShiftS, guessing) == .perform)          // skip without opening
+        #expect(k(.commandN, guessing) == .perform)               // arming opens the panel itself
+        #expect(k(.commandN, .idle) == .ignore)
     }
 
     @Test func collapsedIndicatorPerPhase() {
@@ -185,6 +187,40 @@ import NotchleCore
                                      settingsOpen: true) == nil)
     }
 
+    // MARK: Quit
+
+    @Test func quitShowsWhereAListingIsLoaded() {
+        #expect(!NotchUIRules.showsQuit(.idle))
+        #expect(!NotchUIRules.showsQuit(.exhausted))
+        #expect(Self.allPhases.filter(NotchUIRules.showsQuit).count == 9)
+    }
+
+    @Test func quitStaysArmedForThreeSeconds() {
+        #expect(!NotchUIRules.isQuitArmed(armedAt: nil, now: t0))
+        #expect(NotchUIRules.isQuitArmed(armedAt: t0, now: t0))
+        #expect(NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(2.99)))
+        #expect(!NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(3)))
+        #expect(!NotchUIRules.isQuitArmed(armedAt: t0, now: t0.addingTimeInterval(-1)))   // clock went back
+        #expect(NotchUIRules.quitConfirmWindow == 3)
+    }
+
+    @Test func commandNQuitsAndEscOnlyDisarms() {
+        for p in Self.allPhases {
+            let expected: UICommand? = NotchUIRules.showsQuit(p) ? .quit : nil
+            #expect(NotchUIRules.command(for: .commandN, phase: p, focused: nil) == expected, "\(p)")
+            #expect(NotchUIRules.command(for: .commandN, phase: p, focused: nil, quitArmed: true) == expected, "\(p)")
+        }
+        // Armed: Esc cancels the question and nothing else (no Give up, no collapse).
+        for p in Self.allPhases where NotchUIRules.showsQuit(p) {
+            #expect(NotchUIRules.command(for: .escape, phase: p, focused: .title, quitArmed: true) == .disarmQuit, "\(p)")
+        }
+        #expect(NotchUIRules.command(for: .escape, phase: .guessing(tierIndex: 0), focused: .title,
+                                     settingsOpen: true, quitArmed: true) == .disarmQuit)
+        #expect(NotchUIRules.command(for: .escape, phase: .guessing(tierIndex: 0), focused: .title) == .send(.giveUp))
+        #expect(NotchUIRules.command(for: .commandN, phase: .guessing(tierIndex: 0), focused: nil,
+                                     settingsOpen: true) == nil)
+    }
+
     @Test func restartLabelPerPhase() {
         #expect(NotchUIRules.restartLabel(.playingSnippet(tierIndex: 1)) == "Replay snippet")
         #expect(NotchUIRules.restartLabel(.guessing(tierIndex: 0)) == "Replay snippet")
@@ -219,6 +255,9 @@ import NotchleCore
         #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: [.command, .shift]) == .commandShiftS)
         #expect(C.keyInput(keyCode: 1, characters: "s", modifiers: .command) == nil)             // ⌘S: not ours
         #expect(C.keyInput(keyCode: 1, characters: "S", modifiers: .shift) == nil)               // typing "S"
+        #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: .command) == .commandN)
+        #expect(C.keyInput(keyCode: 45, characters: "N", modifiers: [.command, .shift]) == nil)
+        #expect(C.keyInput(keyCode: 45, characters: "n", modifiers: []) == nil)                  // typing "n"
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: .shift) == nil)
         #expect(C.keyInput(keyCode: 36, characters: "\r", modifiers: [.capsLock, .numericPad]) == .returnKey)
         #expect(C.editAction(keyCode: 9, characters: "v", modifiers: .command) == #selector(NSText.paste(_:)))

@@ -152,6 +152,95 @@ import NotchleCore
         }
     }
 
+    // MARK: Quit
+
+    @Test func quitArmsThenConfirmsToAnEmptyFocusedURLField() {
+        let (model, ui) = make(.guessing(tierIndex: 1))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.clicked()
+        ui.urlText = "https://open.spotify.com/playlist/old"
+        ui.showingSettings = true
+
+        ui.quitPressed(now: t0)
+        #expect(ui.isQuitArmed(now: t0.addingTimeInterval(1)))
+        #expect(sent.isEmpty)                          // one click never quits
+
+        ui.quitPressed(now: t0.addingTimeInterval(2.5))
+        #expect(sent == [.reset])
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(2.5)))
+        #expect(ui.urlText.isEmpty)
+        #expect(ui.requestedFocus == .url)
+        #expect(ui.isExpanded)
+        #expect(!ui.showingSettings)
+
+        var idle = model.state                         // the engine's answer to .reset
+        idle.phase = .idle
+        ui.stateDidChange(from: model.state, to: idle, now: t0.addingTimeInterval(2.5))
+        #expect(ui.requestedFocus == .url)
+    }
+
+    @Test func quitRevertsAfterTheWindow() {
+        let (model, ui) = make(.correct(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.quitPressed(now: t0)
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(3.1)))
+        ui.quitPressed(now: t0.addingTimeInterval(3.1))   // too late: this arms again
+        #expect(sent.isEmpty)
+        #expect(ui.isQuitArmed(now: t0.addingTimeInterval(3.2)))
+    }
+
+    @Test func quitIsHiddenAndInertInIdleAndExhausted() {
+        for phase in [GamePhase.idle, .exhausted] {
+            let (model, ui) = make(phase)
+            var sent: [GameAction] = []
+            model.send = { sent.append($0) }
+            ui.quitPressed(now: t0)
+            ui.quitPressed(now: t0)
+            #expect(sent.isEmpty, "\(phase)")
+            #expect(!ui.isQuitArmed(now: t0), "\(phase)")
+        }
+    }
+
+    @Test func escAndCollapseDisarm() {
+        let (model, ui) = make(.playingSnippet(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        ui.quitPressed(now: t0)
+        ui.perform(.disarmQuit)                        // Esc
+        #expect(!ui.isQuitArmed(now: t0))
+        ui.quitPressed(now: t0.addingTimeInterval(0.5))   // arms again rather than quitting
+        #expect(sent.isEmpty)
+        ui.collapse()
+        #expect(!ui.isQuitArmed(now: t0.addingTimeInterval(0.6)))
+        ui.quitPressed(now: t0.addingTimeInterval(0.7))
+        #expect(sent.isEmpty)
+    }
+
+    @Test func commandNOnACollapsedPanelOpensItAndHoldsItOpenWhileArmed() throws {
+        let (model, ui) = make(.guessing(tierIndex: 0))
+        var sent: [GameAction] = []
+        model.send = { sent.append($0) }
+        #expect(!ui.isExpanded)
+        ui.perform(.quit)                              // ⌘N, mouse elsewhere
+        let armedAt = try #require(ui.quitArmedAt)
+        #expect(ui.isExpanded)
+        #expect(!ui.evaluateAutoCollapse(now: armedAt.addingTimeInterval(2)))   // still asking
+        #expect(ui.evaluateAutoCollapse(now: armedAt.addingTimeInterval(3.1)))  // expired: closes
+        #expect(!ui.isQuitArmed(now: armedAt.addingTimeInterval(3.1)))
+        #expect(sent.isEmpty)
+    }
+
+    @Test func leavingTheLoadedPhasesDisarms() {
+        let (model, ui) = make(.setFailed(correctCount: 3))
+        ui.quitPressed(now: t0)
+        var idle = model.state
+        idle.phase = .idle
+        ui.stateDidChange(from: model.state, to: idle, now: t0)
+        #expect(ui.quitArmedAt == nil)
+    }
+
     // MARK: Auto-close
 
     let t0 = Date(timeIntervalSinceReferenceDate: 2_000_000)

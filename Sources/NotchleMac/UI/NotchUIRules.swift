@@ -13,6 +13,8 @@ public enum UIKeyInput: Hashable, Sendable {
     case commandShiftR
     /// ⌘⇧S: skip to the next, longer tier.
     case commandShiftS
+    /// ⌘N: quit the playlist (arms the confirmation, or confirms it).
+    case commandN
 }
 
 /// What a key means in the current phase.
@@ -25,6 +27,9 @@ public enum UICommand: Hashable, Sendable {
     case collapse
     case closeSettings
     case focus(UIField)
+    /// Quit the playlist: arms the "Quit playlist?" confirmation, or confirms an armed one.
+    case quit
+    case disarmQuit
 }
 
 /// What the guess fields do when the phase changes.
@@ -89,6 +94,26 @@ public enum NotchUIRules {
         }
     }
 
+    // MARK: Quit (Tren, 2026-09-24: "also missing a complete quit button to put a diff playlist in")
+
+    /// Phases with a listing loaded (or loading), where the header offers Quit. Not idle/exhausted:
+    /// those already ask for a link.
+    public static func showsQuit(_ phase: GamePhase) -> Bool {
+        switch phase {
+        case .idle, .exhausted: false
+        case .loading, .playingSnippet, .guessing, .wrong, .correct, .revealed, .setComplete, .setFailed, .error: true
+        }
+    }
+
+    /// How long the armed "Quit playlist?" waits for the confirming click or ⌘N.
+    public static let quitConfirmWindow: TimeInterval = 3
+
+    public static func isQuitArmed(armedAt: Date?, now: Date) -> Bool {
+        guard let armedAt else { return false }
+        let elapsed = now.timeIntervalSince(armedAt)
+        return elapsed >= 0 && elapsed < quitConfirmWindow
+    }
+
     /// Phases that show the Spotify URL field.
     public static func showsURLField(_ phase: GamePhase) -> Bool {
         switch phase {
@@ -115,7 +140,8 @@ public enum NotchUIRules {
     }
 
     /// Collapse now? Only when expanded, the mouse has been outside for the grace period and the
-    /// player is not typing. `mouseLeftAt` is nil while the mouse is inside.
+    /// player is not typing (the caller also passes true while "Quit playlist?" is armed).
+    /// `mouseLeftAt` is nil while the mouse is inside.
     public static func shouldAutoCollapse(expanded: Bool, mouseLeftAt: Date?, typing: Bool, now: Date) -> Bool {
         guard expanded, let mouseLeftAt, !typing else { return false }
         return now.timeIntervalSince(mouseLeftAt) >= collapseGrace
@@ -146,6 +172,8 @@ public enum NotchUIRules {
         case .returnKey?: return fields ? .expand : .perform
         case .tab?, .backTab?: return fields ? .expand : .ignore
         case .commandR?, .commandShiftR?, .commandShiftS?: return .perform
+        // Arming opens the panel itself, so the confirmation is visible.
+        case .commandN?: return showsQuit(phase) ? .perform : .ignore
         case .escape?: return .ignore       // never give up on a panel you cannot see
         }
     }
@@ -285,9 +313,12 @@ public enum NotchUIRules {
     }
 
     /// Keyboard mapping. `settingsOpen`: the settings view covers the phase content. `config`
-    /// decides whether a longer tier is left to skip to.
+    /// decides whether a longer tier is left to skip to. `quitArmed`: "Quit playlist?" is showing,
+    /// so Esc cancels it (and nothing else).
     public static func command(for key: UIKeyInput, phase: GamePhase, focused: UIField?,
-                               settingsOpen: Bool = false, config: GameConfig = GameConfig()) -> UICommand? {
+                               settingsOpen: Bool = false, config: GameConfig = GameConfig(),
+                               quitArmed: Bool = false) -> UICommand? {
+        if quitArmed, key == .escape { return .disarmQuit }
         if settingsOpen {
             return key == .escape ? .closeSettings : nil
         }
@@ -309,6 +340,8 @@ public enum NotchUIRules {
             return canRestart(phase) ? .send(.restart) : nil
         case .commandShiftS:
             return skipSeconds(phase, config) != nil ? .send(.skip) : nil
+        case .commandN:
+            return showsQuit(phase) ? .quit : nil
         case .escape:
             return isGuessPhase(phase) ? .send(.giveUp) : .collapse
         case .tab, .backTab:

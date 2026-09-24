@@ -273,12 +273,22 @@ struct ExpandedContent: View {
                 .truncationMode(.tail)
             // Keep the middle clear: that is where the camera housing sits.
             Spacer(minLength: geometry.hasNotch ? geometry.notchSize.width + 12 : 12)
-            if !state.currentSet.isEmpty {
+            if NotchUIRules.showsQuit(state.phase) {
+                QuitButton(ui: ui)
+            }
+            if !state.currentSet.isEmpty && !ui.isQuitArmed() {
                 Text(NotchUIRules.progressText(state))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(NotchPalette.secondaryText)
             }
+            // While "Quit playlist?" is armed it has the wing to itself (it doesn't fit beside these).
+            if !ui.isQuitArmed() { settingsButton }
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    private var settingsButton: some View {
             Button {
                 ui.showingSettings.toggle()
             } label: {
@@ -290,7 +300,5 @@ struct ExpandedContent: View {
             }
             .buttonStyle(.plain)
             .help(ui.showingSettings ? "Close settings" : "Settings")
-        }
-        .frame(maxHeight: .infinity, alignment: .center)
     }
 }
