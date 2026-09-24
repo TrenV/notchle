@@ -44,9 +44,12 @@ public readonly record struct IslandFrame(double Width, double Height, double Bo
     /// 0 = collapsed content, 1 = expanded content.
     double Expansion)
 {
-    public static IslandFrame For(IslandMode mode)
+    public static IslandFrame For(IslandMode mode) => For(mode, IslandGeometry.ExpandedSize.Height);
+
+    /// <paramref name="expandedHeight"/>: how tall the open island's content wants to be.
+    public static IslandFrame For(IslandMode mode, double expandedHeight)
     {
-        var size = IslandGeometry.ShapeSize(mode);
+        var size = IslandGeometry.ShapeSize(mode, expandedHeight);
         return new(size.Width, size.Height, IslandGeometry.BottomRadius(mode), IslandGeometry.EarRadius(mode),
             mode == IslandMode.Expanded ? 1 : 0);
     }
@@ -72,12 +75,16 @@ public sealed class IslandAnimator
     public IslandFrame Current { get; private set; }
     public bool IsSettled => _progress == 1 && _velocity == 0;
 
-    public void SetTarget(IslandMode mode)
+    public void SetTarget(IslandMode mode) => SetTarget(mode, IslandGeometry.ExpandedSize.Height);
+
+    /// Also retargets (from where the shape is now) when the open content changes height.
+    public void SetTarget(IslandMode mode, double expandedHeight)
     {
-        if (mode == Target) return;
+        var to = IslandFrame.For(mode, expandedHeight);
+        if (mode == Target && to == _to) return;
         Target = mode;
         _from = Current;
-        _to = IslandFrame.For(mode);
+        _to = to;
         _progress = 0;
         // Keep momentum out of the new leg: a reversal mid-flight starts from rest.
         _velocity = 0;

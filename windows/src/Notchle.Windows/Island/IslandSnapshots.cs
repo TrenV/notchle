@@ -98,6 +98,51 @@ public static class IslandSnapshots
         new("48-revealed-cover", new GamePhase.Revealed(null)) { Covers = true, FullTrack = false },
         new("49-correct-cover-offline", new GamePhase.Correct(1)),
         new("50-history-no-covers", new GamePhase.Idle()) { History = true },
+        // Long strings: everything wraps / shrinks and the island grows; nothing is cut off.
+        new("51-long-correct", new GamePhase.Correct(0)) { State = LongState(new GamePhase.Correct(0)), Covers = true },
+        new("52-long-revealed", new GamePhase.Revealed(null)) { State = LongState(new GamePhase.Revealed(null)), FullTrack = false },
+        new("53-long-guessing", new GamePhase.Guessing(1)) { State = LongState(new GamePhase.Guessing(1)), Title = LongGuess, Artist = LongGuessArtist },
+        new("54-long-wrong", new GamePhase.Wrong(1, HalfRight)) { State = LongState(new GamePhase.Wrong(1, HalfRight)), Title = LongGuess, Artist = LongGuessArtist },
+        new("55-long-error", new GamePhase.Error(LongError)) { State = LongState(new GamePhase.Error(LongError)) },
+        new("56-long-history", new GamePhase.Idle()) { History = true, Entries = LongHistory, Covers = true },
+        new("57-long-set-failed", new GamePhase.SetFailed(13)) { State = LongSetEnd() },
+    ];
+
+    // Properties, not fields: static fields initialise in file order and Scenarios (above) reads these.
+    internal static string LongTitle => "Hate That I Made You Love Me (Extended Version) - Live From The O2 Arena, London / 2025 Remaster";
+    internal static string[] LongArtists => ["KAROL G", "Judeline", "rusowsky", "Tiësto", "Peso Pluma"];
+    internal static string LongPlaylist => "My Absolutely Enormous Road Trip Playlist Summer 2026 Edition";
+    internal static string LongGuess => "Hate That I Made You Love Me Extended Version Live From The O2 Arena London";
+    internal static string LongGuessArtist => "Karol G, Judeline, Rusowsky, Tiesto and Peso Pluma";
+    internal static string LongError =>
+        "Spotify did not answer while loading \"" + "My Absolutely Enormous Road Trip Playlist Summer 2026 Edition" +
+        "\". Check your internet connection and that the playlist is still public, then press Skip to try the next song or Reset to paste another link.";
+
+    /// The demo state with the long track at the current index and the long playlist name.
+    internal static GameState LongState(GamePhase phase)
+    {
+        var s = IslandDemoGame.SampleState(phase);
+        var tracks = IslandDemoGame.Tracks.ToList();
+        tracks[s.Index] = new Track("long", "spotify:track:long", LongTitle, LongArtists, 200_000, null);
+        return s with
+        {
+            Listing = new SourceListing(IslandDemoGame.DemoSource, LongPlaylist, tracks),
+            CurrentSet = s.CurrentSet.Count == 0 ? s.CurrentSet : tracks,
+        };
+    }
+
+    private static GameState LongSetEnd()
+    {
+        var s = IslandDemoGame.SetEndState(complete: false, newAvailable: 40);
+        return s with { Listing = s.Listing! with { Name = LongPlaylist } };
+    }
+
+    internal static IReadOnlyList<HistoryEntry> LongHistory =>
+    [
+        new(new Guid(200, 0, 0, new byte[8]), SnapshotNow.AddHours(-2), "long", LongTitle, LongArtists, LongPlaylist,
+            new SourceRef(SourceKind.Playlist, "long"), true, 1, 2, 1, SampleCoverUrl),
+        new(new Guid(201, 0, 0, new byte[8]), SnapshotNow.AddHours(-1), "short", "Tidal", ["Oren Vale"], LongPlaylist,
+            new SourceRef(SourceKind.Playlist, "long"), false, null, 3, 0, null),
     ];
 
     internal static readonly Uri SampleCoverUrl = new("https://image-cdn-fa.spotifycdn.com/image/snapshot");
@@ -243,11 +288,14 @@ public static class IslandSnapshots
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Top,
         };
-        var frame = IslandFrame.For(session.Mode);
+        // A first update measures the content: the open island grows to fit it.
+        view.Update(IslandFrame.For(session.Mode), now, sc.ReduceMotion);
+        var frame = IslandFrame.For(session.Mode, view.ExpandedHeight);
 
         var width = 760.0;
-        var height = sc.Tall ? 520.0 : 300.0;
         var taskbarTop = sc.TopTaskbar ? 48.0 : 0;
+        // Room for the taller island plus some desktop under it.
+        var height = Math.Max(sc.Tall ? 520.0 : 300.0, Math.Ceiling(taskbarTop + frame.Height + 110));
         var root = new Grid { Width = width, Height = height, ClipToBounds = true };
         root.Children.Add(MockDesktop(width, height, taskbarTop));
         view.Margin = new Thickness(0, taskbarTop, 0, 0);
