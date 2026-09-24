@@ -245,12 +245,13 @@ public enum NotchUIRules {
     /// Placeholder of the artist field. A guess needs every credited artist, so with more than
     /// one the player is told how many (the count only, never names).
     public static func artistPlaceholder(artistCount: Int) -> String {
-        artistCount > 1 ? "\(artistCount) artists, any order" : "Artist(s)"
+        // No hint about how many artists: knowing them is part of the game (Tren, 2026-09-24).
+        "Artist(s)"
     }
 
     /// Extra hint in `.wrong` when the artist half was wrong and several artists are needed.
     public static func artistHint(_ verdict: Verdict, artistCount: Int) -> String? {
-        !verdict.artistCorrect && artistCount > 1 ? "need all \(artistCount)" : nil
+        nil // never reveal the number of credited artists
     }
 
     /// Number of credited artists of the current track: safe to show in every phase.

@@ -46,7 +46,8 @@ import NotchleCore
             #expect(!t.contains("Quill"))
             #expect(!t.contains("Mabel"))
         }
-        #expect(texts[0] == "2 artists, any order")
+        #expect(texts[0] == "Artist(s)")      // not even how many artists there are
+        #expect(!texts.joined().contains("2"))
         #expect(texts[2] == "Replay snippet")
     }
 

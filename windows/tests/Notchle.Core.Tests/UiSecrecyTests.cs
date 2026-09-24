@@ -87,13 +87,13 @@ public class UiSecrecyTests
     }
 
     [Fact]
-    public void SeveralArtistsShowOnlyTheCount()
+    public void SeveralArtistsDontRevealTheCount()
     {
         var guess = Assert.IsType<IslandScreen.Guess>(
             IslandScreens.Build(UiFixtures.State(new GamePhase.Guessing(0)), "", "", null, true));
-        Assert.Equal("2 artists, any order", guess.ArtistPlaceholder);
+        Assert.Equal("Artist(s)", guess.ArtistPlaceholder);
         var wrong = Assert.IsType<IslandScreen.Wrong>(
             IslandScreens.Build(UiFixtures.State(new GamePhase.Wrong(0, new Verdict(true, false))), "T", "Quill", null, true));
-        Assert.Equal("need all 2", wrong.ArtistChip.Hint);
+        Assert.Null(wrong.ArtistChip.Hint);
     }
 }

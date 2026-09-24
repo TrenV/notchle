@@ -294,8 +294,9 @@ import NotchleCore
         #expect(NotchUIRules.secondsLabel(5) == "5s")
         #expect(NotchUIRules.secondsLabel(2.5) == "2.5s")
         #expect(NotchUIRules.artistPlaceholder(artistCount: 1) == "Artist(s)")
-        #expect(NotchUIRules.artistPlaceholder(artistCount: 3) == "3 artists, any order")
-        #expect(NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false), artistCount: 3) == "need all 3")
+        // The number of artists is never shown: knowing them is part of the game.
+        #expect(NotchUIRules.artistPlaceholder(artistCount: 3) == "Artist(s)")
+        #expect(NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false), artistCount: 3) == nil)
         #expect(NotchUIRules.artistHint(Verdict(titleCorrect: true, artistCorrect: false), artistCount: 1) == nil)
         #expect(NotchUIRules.artistHint(Verdict(titleCorrect: false, artistCorrect: true), artistCount: 3) == nil)
     }

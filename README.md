@@ -131,8 +131,8 @@ and `%APPDATA%\Notchle`.
 - **⌘⇧R** (macOS) / **Ctrl+Shift+R** (Windows), or **↺**, replays the snippet without using a try, or restarts the song from 0:00 once it's answered.
 - **⌘⇧S** (macOS) / **Ctrl+Shift+S** (Windows), or **Skip**, uses up this try without guessing and plays the next, longer snippet.
 - **⌘N** (macOS) / **Ctrl+N** (Windows), or **✕** in the header, quits the playlist so you can paste another: press it again (or click **Quit playlist?**) within 3 seconds to confirm; Esc cancels.
-- Typos are fine. The artist field needs **every** credited artist, in any order; the
-  placeholder tells you how many.
+- Typos are fine. The artist field needs **every** credited artist, in any order. It
+  won't tell you how many there are.
 - The notch or island only takes the keyboard after you click it. It closes when your mouse
   leaves, unless you're typing.
 - Playlists give up to 100 songs (5 sets), albums all their tracks, and artists their 10 top

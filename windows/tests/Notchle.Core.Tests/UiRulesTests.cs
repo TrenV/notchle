@@ -174,8 +174,9 @@ public class UiRulesTests
         Assert.Equal("5s", IslandRules.SecondsLabel(5));
         Assert.Equal("2.5s", IslandRules.SecondsLabel(2.5));
         Assert.Equal("Artist(s)", IslandRules.ArtistPlaceholder(1));
-        Assert.Equal("3 artists, any order", IslandRules.ArtistPlaceholder(3));
-        Assert.Equal("need all 3", IslandRules.ArtistHint(new Verdict(true, false), 3));
+        // The number of artists is never shown: knowing them is part of the game.
+        Assert.Equal("Artist(s)", IslandRules.ArtistPlaceholder(3));
+        Assert.Null(IslandRules.ArtistHint(new Verdict(true, false), 3));
         Assert.Null(IslandRules.ArtistHint(new Verdict(true, false), 1));
         Assert.Null(IslandRules.ArtistHint(new Verdict(false, true), 3));
     }

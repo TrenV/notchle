@@ -111,11 +111,12 @@ public static class IslandRules
 
     /// Placeholder of the artist field: with several artists only the count, never names.
     public static string ArtistPlaceholder(int artistCount) =>
-        artistCount > 1 ? $"{artistCount} artists, any order" : "Artist(s)";
+        // No hint about how many artists: knowing them is part of the game (Tren, 2026-09-24).
+        "Artist(s)";
 
     /// Extra hint in Wrong when the artist half was wrong and several artists are needed.
     public static string? ArtistHint(Verdict verdict, int artistCount) =>
-        !verdict.ArtistCorrect && artistCount > 1 ? $"need all {artistCount}" : null;
+        null; // never reveal the number of credited artists
 
     /// Number of credited artists of the current track: safe to show in every phase.
     public static int ArtistCount(GameState state) => state.CurrentTrack?.Artists.Count ?? 1;

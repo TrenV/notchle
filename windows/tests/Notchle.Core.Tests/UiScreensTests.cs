@@ -52,7 +52,7 @@ public class UiScreensTests
         Assert.Equal("Half right", half.Headline);
         Assert.Equal("Retry · 10s", half.RetryLabel);
         Assert.Equal(new VerdictChip("Title", true, "T", null), half.TitleChip);
-        Assert.Equal(new VerdictChip("Artist(s)", false, "A", "need all 2"), half.ArtistChip);
+        Assert.Equal(new VerdictChip("Artist(s)", false, "A", null), half.ArtistChip);
         Assert.Equal([AttemptState.Missed, AttemptState.Later, AttemptState.Later], half.Attempts.Select(a => a.State));
         var none = Assert.IsType<IslandScreen.Wrong>(Build(new GamePhase.Wrong(1, new Verdict(false, false))));
         Assert.Equal("Not quite", none.Headline);
