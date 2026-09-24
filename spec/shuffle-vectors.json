@@ -1,0 +1,13 @@
+{
+  "$comment": "SplitMix64 and engine shuffle vectors computed from the Swift implementation; both engines must reproduce them bit for bit. 64-bit values are decimal strings (JSON numbers lose precision above 2^53).",
+  "splitmix64": [
+    { "seed": "42", "outputs": ["13679457532755275413", "2949826092126892291", "5139283748462763858", "6349198060258255764", "701532786141963250", "16015981125662989062", "4028864712777624925", "14769051326987775908"] },
+    { "seed": "0", "outputs": ["16294208416658607535", "7960286522194355700", "487617019471545679", "17909611376780542444"] }
+  ],
+  "shuffle": [
+    { "seed": "42", "count": 25, "order": [20, 3, 21, 1, 15, 18, 4, 8, 5, 0, 10, 22, 11, 16, 23, 17, 6, 14, 9, 2, 24, 12, 7, 19, 13] }
+  ],
+  "engine": [
+    { "seed": "42", "tracks": 45, "setSize": 20, "firstSet": ["t0", "t40", "t6", "t21", "t7", "t4", "t9", "t24", "t13", "t26", "t32", "t38", "t35", "t43", "t29", "t18", "t37", "t31", "t3", "t5"], "replaySet": ["t24", "t5", "t37", "t6", "t32", "t43", "t18", "t40", "t35", "t26", "t13", "t3", "t31", "t38", "t4", "t29", "t0", "t9", "t7", "t21"], "secondSet": ["t19", "t27", "t20", "t44", "t39", "t17", "t14", "t12", "t23", "t33", "t2", "t15", "t11", "t41", "t34", "t8", "t42", "t28", "t22", "t36"], "note": "tracks t0..t44 titled \"Song <i>\" by \"Artist\"; firstSet after loaded, replaySet after giving up every track then replaySet, secondSet after answering every replayed track right then nextSet" }
+  ]
+}
