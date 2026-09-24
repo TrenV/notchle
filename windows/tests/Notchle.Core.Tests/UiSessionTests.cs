@@ -136,6 +136,33 @@ public class UiSessionTests
     }
 
     [Fact]
+    public void SkipKeepsTextAndFocusAndStartsTheNewSnippetsRing()
+    {
+        var s = Make(new GamePhase.Guessing(0), out var state);
+        s.TitleText = "Paper";
+        s.ArtistText = "Kit";
+        s.FocusedField = IslandField.Title;
+        var token = s.FocusToken;
+        _clock.Advance(6);
+
+        Assert.True(s.HandleKey(IslandKey.CtrlShiftS));
+        Assert.Equal([new GameAction.Skip()], _sent);
+        s.StateDidChange(state, state with { Phase = new GamePhase.PlayingSnippet(1) });
+        Assert.Equal(("Paper", "Kit"), (s.TitleText, s.ArtistText));
+        Assert.Equal(token, s.FocusToken);
+        Assert.Equal(IslandField.Title, s.FocusedField);
+        Assert.Equal(_clock.Now, s.SnippetStart);
+    }
+
+    [Fact]
+    public void NoSkipShortcutAtTheLastTier()
+    {
+        var s = Make(new GamePhase.Guessing(2), out _);
+        Assert.False(s.HandleKey(IslandKey.CtrlShiftS));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
     public void NoRestartInWrong()
     {
         var s = Make(new GamePhase.Wrong(0, new Verdict(true, false)), out _);

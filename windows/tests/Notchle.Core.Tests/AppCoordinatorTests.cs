@@ -14,6 +14,9 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
     public bool PlaysFullTrack => true;
     public Exception? SnippetError { get; set; }
     public double? CompleteSnippetAfterSeconds { get; set; }
+    /// The snippet runs to its end even when cancelled, so it returns normally after the
+    /// operation was superseded (a late, stale result).
+    public bool IgnoreCancellation { get; set; }
 
     public IReadOnlyList<string> Log { get { lock (_gate) return _log.ToList(); } }
     private void Append(string entry) { lock (_gate) _log.Add(entry); }
@@ -24,7 +27,8 @@ public sealed class AppRecordingPlayer(string name = "fake", TimeSpan? pauseLate
         if (SnippetError is { } error) throw error;
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(CompleteSnippetAfterSeconds ?? seconds), cancellationToken);
+            await Task.Delay(TimeSpan.FromSeconds(CompleteSnippetAfterSeconds ?? seconds),
+                IgnoreCancellation ? CancellationToken.None : cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -187,6 +191,28 @@ public class AppCoordinatorTests
 
         Assert.Equal(new[] { "stop", "snippet:t1", "finished:t1", "continue", "restart:t1" }, player.Log);
         Assert.IsType<GamePhase.Correct>(h.Coordinator.State.Phase);
+    }
+
+    /// Skip mid-snippet while the skipped snippet still completes normally: its SnippetFinished
+    /// is stale and must not reach the engine (it would end the new tier early).
+    [Fact]
+    public async Task SkippedSnippetsLateFinishIsDropped()
+    {
+        var source = new AppGatedSource();
+        var player = new AppRecordingPlayer { CompleteSnippetAfterSeconds = 0.15, IgnoreCancellation = true };
+        var h = new Harness(_ => player, source);
+
+        h.Coordinator.Send(new GameAction.Load(Ref1));
+        await WaitUntil(() => source.Calls.Count == 1);
+        source.Calls.Single().Result.SetResult(new SourceListing(Ref1, "one", new[] { T1 }));
+        await WaitUntil(() => player.Log.Contains("snippet:t1"));
+        h.Coordinator.Send(new GameAction.Skip());
+        Assert.Equal(new GamePhase.PlayingSnippet(1), h.Coordinator.State.Phase);
+        await h.Coordinator.DrainAsync();
+
+        Assert.Equal(new[] { "stop", "snippet:t1", "finished:t1", "snippet:t1", "finished:t1" }, player.Log);
+        Assert.Single(h.ActionsOf<GameAction.SnippetFinished>()); // only the tier-1 snippet's
+        Assert.Equal(new GamePhase.Guessing(1), h.Coordinator.State.Phase);
     }
 
     [Fact]

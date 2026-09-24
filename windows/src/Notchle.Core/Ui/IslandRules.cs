@@ -4,14 +4,14 @@ namespace Notchle.Core.Ui;
 
 // Pure presentation rules of the Windows "island", ported from
 // Sources/NotchleMac/UI/NotchUIRules.swift. Same phases, same copy, same shortcuts
-// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Esc); the Windows-only rules (no auto-expand, hover
+// (Enter / Tab / Ctrl+R / Ctrl+Shift+R / Ctrl+Shift+S / Esc); the Windows-only rules (no auto-expand, hover
 // collapse, click-to-type) live in IslandBehavior.
 
 /// Text fields of the island.
 public enum IslandField { Url, Title, Artist }
 
 /// Keys the island handles itself; everything else goes to the focused text box.
-public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR }
+public enum IslandKey { Enter, Escape, Tab, BackTab, CtrlR, CtrlShiftR, CtrlShiftS }
 
 /// What a key means in the current phase.
 public abstract record IslandCommand
@@ -62,6 +62,23 @@ public static class IslandRules
     /// be unlimited guesses at the same tier), and the engine ignores Restart there anyway.
     public static bool ShowsRestart(GamePhase phase) =>
         phase is GamePhase.PlayingSnippet or GamePhase.Guessing or GamePhase.Correct or GamePhase.Revealed;
+
+    /// The tier being played or guessed, in PlayingSnippet / Guessing only.
+    public static int? GuessTier(GamePhase phase) => phase switch
+    {
+        GamePhase.PlayingSnippet p => p.TierIndex,
+        GamePhase.Guessing g => g.TierIndex,
+        _ => null,
+    };
+
+    /// Skip is offered (button and Ctrl+Shift+S) while guessing with a longer tier left. At the
+    /// last tier the engine would treat it as GiveUp, which already has its own button.
+    public static bool CanSkip(GamePhase phase, GameConfig config) =>
+        GuessTier(phase) is { } tier && tier + 1 < config.Tiers.Count;
+
+    /// "Skip · 10s": the next tier's length; null where Skip isn't offered.
+    public static string? SkipLabel(GamePhase phase, GameConfig config) =>
+        CanSkip(phase, config) ? $"Skip · {SecondsLabel(Seconds(GuessTier(phase)!.Value + 1, config))}" : null;
 
     /// Tooltip / accessible name of the ↺ button, null where it is hidden.
     public static string? RestartLabel(GamePhase phase) => phase switch
@@ -138,6 +155,9 @@ public static class IslandRules
                 // Snippet -> guessing of the same tier: the player may be mid-typing; leave them be.
                 if (old is GamePhase.PlayingSnippet op && op.TierIndex == tier && @new is GamePhase.Guessing)
                     return FieldTransition.None;
+                // A skip: same track, next tier. Keep text and focus.
+                if (GuessTier(old ?? new GamePhase.Idle()) is { } from && tier == from + 1)
+                    return FieldTransition.None;
                 // A replay (Restart from Guessing): same track, same tier. Keep text and focus.
                 if (old is GamePhase.Guessing og && og.TierIndex == tier && @new is GamePhase.PlayingSnippet)
                     return FieldTransition.None;
@@ -152,7 +172,10 @@ public static class IslandRules
     }
 
     /// Keyboard mapping. <paramref name="settingsOpen"/>: the settings view covers the phase.
-    public static IslandCommand? Command(IslandKey key, GamePhase phase, IslandField? focused, bool settingsOpen = false)
+    /// <paramref name="config"/> decides whether a longer tier is left to skip to (default tiers
+    /// when null).
+    public static IslandCommand? Command(IslandKey key, GamePhase phase, IslandField? focused, bool settingsOpen = false,
+        GameConfig? config = null)
     {
         if (settingsOpen) return key == IslandKey.Escape ? new IslandCommand.CloseSettings() : null;
         switch (key)
@@ -172,6 +195,8 @@ public static class IslandRules
                 return phase is GamePhase.Wrong ? new IslandCommand.Send(new GameAction.Retry()) : null;
             case IslandKey.CtrlShiftR:
                 return ShowsRestart(phase) ? new IslandCommand.Restart() : null;
+            case IslandKey.CtrlShiftS:
+                return CanSkip(phase, config ?? GameConfig.Default) ? new IslandCommand.Send(new GameAction.Skip()) : null;
             case IslandKey.Escape:
                 return IsGuessPhase(phase) ? new IslandCommand.Send(new GameAction.GiveUp()) : new IslandCommand.Collapse();
             case IslandKey.Tab or IslandKey.BackTab:
@@ -195,7 +220,7 @@ public static class IslandRules
 /// layer passes KeyInterop.VirtualKeyFromKey(e.Key).
 public static class IslandKeys
 {
-    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkR = 0x52;
+    public const int VkTab = 0x09, VkReturn = 0x0D, VkEscape = 0x1B, VkR = 0x52, VkS = 0x53;
 
     public static IslandKey? FromVirtualKey(int vk, bool ctrl, bool alt, bool shift)
     {
@@ -208,6 +233,7 @@ public static class IslandKeys
             VkTab when shift && !ctrl && !alt => IslandKey.BackTab,
             VkR when ctrl && !alt && !shift => IslandKey.CtrlR,
             VkR when ctrl && !alt && shift => IslandKey.CtrlShiftR,
+            VkS when ctrl && !alt && shift => IslandKey.CtrlShiftS,
             _ => null,
         };
     }

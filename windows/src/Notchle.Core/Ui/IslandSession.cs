@@ -113,7 +113,7 @@ public sealed class IslandSession
     /// Handles a key the island owns. Returns false when the key should go to the text box.
     public bool HandleKey(IslandKey key)
     {
-        var command = IslandRules.Command(key, State.Phase, FocusedField, ShowingSettings);
+        var command = IslandRules.Command(key, State.Phase, FocusedField, ShowingSettings, State.Config);
         if (command is null) return false;
         Perform(command);
         return true;

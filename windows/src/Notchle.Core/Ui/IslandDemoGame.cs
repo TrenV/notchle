@@ -135,6 +135,15 @@ public sealed class IslandDemoGame
             case (GameAction.Retry, GamePhase.Wrong w):
                 PlaySnippet(w.TierIndex + 1);
                 break;
+            case (GameAction.Skip, GamePhase.PlayingSnippet or GamePhase.Guessing):
+            {
+                var tier = IslandRules.GuessTier(s.Phase)!.Value;
+                if (tier + 1 < s.Config.Tiers.Count) { PlaySnippet(tier + 1); break; }
+                _snippetToken++;
+                _set(s with { Results = [.. s.Results, new TrackOutcome.Missed()] });
+                SetPhase(new GamePhase.Revealed(null));
+                break;
+            }
             case (GameAction.Restart, GamePhase.PlayingSnippet p):
                 PlaySnippet(p.TierIndex);
                 break;

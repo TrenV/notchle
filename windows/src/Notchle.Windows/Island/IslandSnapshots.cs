@@ -74,6 +74,8 @@ public static class IslandSnapshots
         new("30-guessing-replay-hover", new GamePhase.Guessing(1)) { Title = "Paper Lanterns", Artist = "Kites", RestartHover = true },
         new("31-correct-restart-hover", new GamePhase.Correct(0)) { RestartHover = true },
         new("32-revealed-restart-hover", new GamePhase.Revealed(null)) { RestartHover = true, FullTrack = false },
+        new("33-guessing-t0-skip", new GamePhase.Guessing(0)) { Title = "Paper" },
+        new("34-guessing-t2-no-skip", new GamePhase.Guessing(2)) { Title = "Paper Lanterns", Artist = "The Kites" },
     ];
 
     /// Writes one PNG per scenario into <paramref name="directory"/>. Runs on an STA thread of

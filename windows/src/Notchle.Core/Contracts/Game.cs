@@ -17,6 +17,9 @@ namespace Notchle.Core;
 //   restarts the whole song from 0:00 and lets it play on. Ignored everywhere else, Wrong
 //   included: Retry is the way on from there, and a free replay would allow unlimited guesses
 //   at the same tier.
+// - Skip (Tren, 2026-09-24: "forfeit 1 chance to get the longer version, over completely
+//   forfeiting by giving up"): in PlayingSnippet / Guessing it spends the attempt without a
+//   guess and plays the next, longer tier. At the last tier it is GiveUp. Ignored elsewhere.
 
 public abstract record GamePhase
 {
@@ -67,6 +70,10 @@ public abstract record GameAction
     public sealed record Submit(Guess Guess) : GameAction;
     public sealed record Retry : GameAction;
     public sealed record GiveUp : GameAction;
+    /// From PlayingSnippet/Guessing: give up this attempt without guessing and play the next,
+    /// longer tier. At the last tier it behaves like GiveUp. Ignored elsewhere (in Wrong, Retry
+    /// already does this).
+    public sealed record Skip : GameAction;
     public sealed record Next : GameAction;
     public sealed record NextSet : GameAction;
     public sealed record ReplaySet : GameAction;

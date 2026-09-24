@@ -170,6 +170,7 @@ internal sealed class GuessView : PhaseView
     private readonly AttemptDotsView _dots = new();
     private readonly SnippetProgressBar _bar = new();
     private readonly IslandButton _submit;
+    private readonly IslandButton _skip;
 
     public GuessView(IslandContext ctx)
     {
@@ -191,12 +192,19 @@ internal sealed class GuessView : PhaseView
         Top(fields, 12);
         var giveUp = new IslandButton(IslandScreen.Guess.GiveUpLabel, KeyHints.Esc, IslandButton.Kind.Quiet,
             () => ctx.Send(new GameAction.GiveUp()));
+        // Forfeit this attempt for the next, longer tier; typed text and focus stay (the button
+        // is not focusable). Hidden at the last tier, where only Give up is left.
+        _skip = new IslandButton("Skip", KeyHints.CtrlShiftS, IslandButton.Kind.Secondary,
+            () => ctx.Send(new GameAction.Skip())) { Margin = new Thickness(12, 0, 0, 0) };
         _submit = new IslandButton(IslandScreen.Guess.SubmitLabel, KeyHints.Enter, IslandButton.Kind.Primary, () =>
         {
             ctx.Session.SubmitGuess();
             ctx.Changed();
         });
-        Bottom(Ui.Bar(giveUp, _submit, 26));
+        var leading = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        leading.Children.Add(giveUp);
+        leading.Children.Add(_skip);
+        Bottom(Ui.Bar(leading, _submit, 26));
         Fill();
     }
 
@@ -217,6 +225,8 @@ internal sealed class GuessView : PhaseView
         _ctx.TitleField.Sync(_ctx.Session.TitleText);
         _ctx.ArtistField.Sync(_ctx.Session.ArtistText);
         _submit.Enabled = _ctx.Session.CanSubmitGuess;
+        if (s.SkipLabel is { } skip && _skip.Label != skip) _skip.Label = skip;
+        _skip.Visibility = s.SkipLabel is null ? Visibility.Collapsed : Visibility.Visible;
     }
 }
 

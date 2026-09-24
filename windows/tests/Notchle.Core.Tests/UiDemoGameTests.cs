@@ -63,6 +63,22 @@ public class UiDemoGameTests
     }
 
     [Fact]
+    public void SkipPlaysTheNextTierThenRevealsAtTheLast()
+    {
+        _state = IslandDemoGame.SampleState(new GamePhase.Guessing(0));
+        _game.Send(new GameAction.Skip());
+        Assert.Equal(new GamePhase.PlayingSnippet(1), _state.Phase);
+        _game.Send(new GameAction.Skip());
+        Assert.Equal(new GamePhase.PlayingSnippet(2), _state.Phase);
+        Assert.Empty(_state.Results);
+        _game.Send(new GameAction.Skip());
+        Assert.Equal(new GamePhase.Revealed(null), _state.Phase);
+        Assert.Equal([new TrackOutcome.Missed()], _state.Results);
+        RunScheduled(); // stale snippet timers of tiers 1 and 2
+        Assert.Equal(new GamePhase.Revealed(null), _state.Phase);
+    }
+
+    [Fact]
     public void SeveralArtistsAreAllNeededInAnyOrder()
     {
         _state = IslandDemoGame.SampleState(new GamePhase.Guessing(0), index: 5);

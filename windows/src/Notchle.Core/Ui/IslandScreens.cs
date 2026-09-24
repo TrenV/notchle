@@ -26,9 +26,10 @@ public abstract record IslandScreen
 
     public sealed record Loading(string Text) : IslandScreen;
 
-    /// PlayingSnippet / Guessing. Never holds the track.
+    /// PlayingSnippet / Guessing. Never holds the track. <paramref name="SkipLabel"/>: "Skip · 10s",
+    /// null at the last tier (no Skip button there).
     public sealed record Guess(bool Playing, string Status, double Seconds, IReadOnlyList<AttemptPill> Attempts,
-        string ArtistPlaceholder) : IslandScreen
+        string ArtistPlaceholder, string? SkipLabel = null) : IslandScreen
     {
         public const string TitlePlaceholder = "Title";
         public const string GiveUpLabel = "Give up";
@@ -79,6 +80,7 @@ public static class KeyHints
     public const string Esc = "Esc";
     public const string CtrlR = "Ctrl+R";
     public const string CtrlShiftR = "Ctrl+Shift+R";
+    public const string CtrlShiftS = "Ctrl+Shift+S";
     public const string Hotkey = "Ctrl+Alt+N";
 }
 
@@ -173,7 +175,8 @@ public static class IslandScreens
         return new IslandScreen.Guess(playing,
             playing ? $"Listening · {IslandRules.SecondsLabel(seconds)}" : "What's this song?",
             seconds, Attempts(state.Config, tier, currentMissed: false),
-            IslandRules.ArtistPlaceholder(IslandRules.ArtistCount(state)));
+            IslandRules.ArtistPlaceholder(IslandRules.ArtistCount(state)),
+            IslandRules.SkipLabel(state.Phase, state.Config));
     }
 
     /// Used tiers red, current white, later dim; in Wrong the current tier counts as missed.
