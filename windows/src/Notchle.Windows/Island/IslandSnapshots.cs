@@ -198,7 +198,10 @@ public static class IslandSnapshots
     }
 
     internal static readonly Color SnapshotAccent = Color.FromRgb(0x00, 0x78, 0xD4);
-    internal static readonly DateTimeOffset SnapshotNow = new(2026, 9, 24, 14, 5, 0, TimeSpan.Zero);
+    // A property, not a field: static fields initialise in file order, and SampleHistory (above)
+    // reads this first. As a field it was still default(DateTimeOffset) then and every snapshot
+    // crashed (CI run 35999539827).
+    internal static DateTimeOffset SnapshotNow => new(2026, 9, 24, 14, 5, 0, TimeSpan.Zero);
 
     /// Builds the scenario's island (for tests: the view tree without rendering).
     internal static (FrameworkElement Root, IslandView View, IslandSession Session) Compose(Scenario sc)
