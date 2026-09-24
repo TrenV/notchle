@@ -104,7 +104,10 @@ Each snippet runs these steps:
 
 1. `GET /v1/me/player/devices` finds this PC's Spotify app (type `Computer`, named after the PC).
 2. If that device is not active, `PUT /v1/me/player` transfers playback to it.
-3. `PUT /v1/me/player/play` sends the track URI and `position_ms`.
+3. `PUT /v1/me/player/play` plays the track inside its album (`context_uri` + `offset.uri` +
+   `position_ms`; the album comes from `GET /v1/tracks/{id}`, once per track). A bare `uris` play
+   was measured to be accepted (204) while Spotify then empties the player; it stays only as the
+   fallback when the album lookup fails.
 4. `GET /v1/me/player` is polled until `progress_ms` reaches the end of the snippet.
 5. `PUT /v1/me/player/pause` stops it.
 
