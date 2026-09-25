@@ -159,10 +159,11 @@ let tokenJSON = #"{"access_token":"new-access","token_type":"Bearer","expires_in
     @Test func parsesPlaybackAndTheEmpty204() {
         let p = SpotifyPlayerAPI.parsePlayback(Data("""
             {"is_playing":true,"progress_ms":12345,"currently_playing_type":"track",
-             "item":{"uri":"spotify:track:x","name":"never read"},"device":{"id":"me"}}
+             "item":{"uri":"spotify:track:x","name":"Some Title"},"device":{"id":"me"}}
             """.utf8))
         #expect(p == SpotifyPlayback(isPlaying: true, progressMs: 12345, itemURI: "spotify:track:x",
-                                     currentlyPlayingType: "track", deviceID: "me"))
+                                     currentlyPlayingType: "track", deviceID: "me",
+                                     itemName: "Some Title"))   // only compared with the expected title, never shown
         #expect(p?.position == 12.345)
         #expect(SpotifyPlayerAPI.parsePlayback(Data()) == nil)
         #expect(SpotifyPlayerAPI.parseDisplayName(Data(#"{"display_name":"Tren","id":"t"}"#.utf8)) == "Tren")
@@ -398,4 +399,26 @@ final class LockedBox<T>: @unchecked Sendable {
     #expect(playback.isPlayingItem("spotify:track:RELINKED"))
     #expect(!playback.isPlayingItem("spotify:track:OTHER"))
     #expect(playback.summary.contains("linked_from=spotify:track:REQUESTED"))
+}
+
+/// Tren's second live run: Spotify started elsewhere in the album when the offset was the
+/// playlist's track uri. The offset is now the track's position in its album (disc 1).
+@Test func albumIndexComesFromTrackNumberOnDiscOne() {
+    #expect(SpotifyPlayerAPI.parseAlbumIndex(Data(#"{"track_number":4,"disc_number":1,"album":{"uri":"spotify:album:A"}}"#.utf8)) == 3)
+    #expect(SpotifyPlayerAPI.parseAlbumIndex(Data(#"{"track_number":4}"#.utf8)) == 3)
+    #expect(SpotifyPlayerAPI.parseAlbumIndex(Data(#"{"track_number":4,"disc_number":2}"#.utf8)) == nil)
+    #expect(SpotifyPlayerAPI.parseAlbumIndex(Data(#"{"album":{}}"#.utf8)) == nil)
+}
+
+@Test func playWithAnAlbumIndexUsesAPositionOffset() {
+    let r = SpotifyPlayerAPI.play(deviceID: "mac", trackURI: "spotify:track:T", positionMs: 5000,
+                                  contextURI: "spotify:album:A", albumIndex: 3)
+    #expect(String(data: r.body ?? Data(), encoding: .utf8) == #"{"context_uri":"spotify:album:A","offset":{"position":3},"position_ms":5000}"#)
+}
+
+@Test func aSameTitledSubstituteCountsAsTheTrack() throws {
+    let body = Data(#"{"is_playing":true,"progress_ms":10,"item":{"uri":"spotify:track:OTHERID","name":"Blinding Lights"}}"#.utf8)
+    let p = try #require(SpotifyPlayerAPI.parsePlayback(body))
+    #expect(p.isPlaying("spotify:track:REQUESTED", title: "blinding lights"))
+    #expect(!p.isPlaying("spotify:track:REQUESTED", title: "Save Your Tears"))
 }

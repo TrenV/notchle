@@ -26,10 +26,12 @@ public struct SpotifyPlayback: Sendable, Hashable {
     /// `item.linked_from.uri`: Spotify plays a relinked version for the account's market and
     /// reports the requested track here.
     public var linkedFromURI: String?
+    public var itemName: String?
 
     public init(isPlaying: Bool, progressMs: Int, itemURI: String?, currentlyPlayingType: String? = "track",
-                deviceID: String? = nil, linkedFromURI: String? = nil) {
+                deviceID: String? = nil, linkedFromURI: String? = nil, itemName: String? = nil) {
         self.linkedFromURI = linkedFromURI
+        self.itemName = itemName
         self.isPlaying = isPlaying
         self.progressMs = progressMs
         self.itemURI = itemURI
@@ -42,9 +44,17 @@ public struct SpotifyPlayback: Sendable, Hashable {
     /// Whether this is `uri`, directly or as the relinked version of it.
     public func isPlayingItem(_ uri: String) -> Bool { itemURI == uri || linkedFromURI == uri }
 
+    /// The requested track, or the same-titled version Spotify substituted (another id for the
+    /// same song in the account's market, without a linked_from).
+    public func isPlaying(_ uri: String, title: String) -> Bool {
+        if isPlayingItem(uri) { return true }
+        guard let itemName else { return false }
+        return itemName.compare(title, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+    }
+
     /// For error logs: what Spotify reported.
     public var summary: String {
-        "is_playing=\(isPlaying) item=\(itemURI ?? "none") linked_from=\(linkedFromURI ?? "none") device=\(deviceID ?? "none") type=\(currentlyPlayingType ?? "none")"
+        "is_playing=\(isPlaying) item=\(itemURI ?? "none") name=\(itemName ?? "none") linked_from=\(linkedFromURI ?? "none") device=\(deviceID ?? "none") type=\(currentlyPlayingType ?? "none")"
     }
     public var isAd: Bool { currentlyPlayingType == "ad" }
 }
@@ -68,10 +78,15 @@ public enum SpotifyPlayerAPI {
     /// With `contextURI` (the track's album) it plays "that album, from this track": measured on
     /// Tren's account (2026-09-24), a bare `uris` play is accepted with 204 but Spotify then
     /// empties the player, while the album-context play works.
-    public static func play(deviceID: String, trackURI: String, positionMs: Int, contextURI: String? = nil) -> HTTPRequest {
+    /// `albumIndex` (0-based position in the album) is preferred over the track's uri as the
+    /// offset: Tren's second live run showed Spotify starting elsewhere in the album when given
+    /// the playlist's track uri (a relinked id isn't in that album under that uri).
+    public static func play(deviceID: String, trackURI: String, positionMs: Int, contextURI: String? = nil,
+                            albumIndex: Int? = nil) -> HTTPRequest {
         let path = "me/player/play?device_id=\(SpotifyAccounts.percentEncode(deviceID))"
         if let contextURI {
-            return put(path, json: ["context_uri": contextURI, "offset": ["uri": trackURI], "position_ms": max(0, positionMs)])
+            let offset: [String: Any] = albumIndex.map { ["position": $0] } ?? ["uri": trackURI]
+            return put(path, json: ["context_uri": contextURI, "offset": offset, "position_ms": max(0, positionMs)])
         }
         return put(path, json: ["uris": [trackURI], "position_ms": max(0, positionMs)])
     }
@@ -83,6 +98,15 @@ public enum SpotifyPlayerAPI {
 
     public static func parseAlbumURI(_ body: Data) -> String? {
         (jsonObject(body)?["album"] as? [String: Any])?["uri"] as? String
+    }
+
+    /// 0-based position of the track in its album, from GET /tracks/{id}. Only for disc 1: on later
+    /// discs the position depends on earlier discs' lengths, so those keep the uri offset.
+    public static func parseAlbumIndex(_ body: Data) -> Int? {
+        guard let root = jsonObject(body),
+              let number = (root["track_number"] as? NSNumber)?.intValue, number >= 1,
+              ((root["disc_number"] as? NSNumber)?.intValue ?? 1) == 1 else { return nil }
+        return number - 1
     }
 
     /// PUT /me/player/play without a body resumes the current track.
@@ -122,7 +146,8 @@ public enum SpotifyPlayerAPI {
             itemURI: item?["uri"] as? String,
             currentlyPlayingType: root["currently_playing_type"] as? String,
             deviceID: device?["id"] as? String,
-            linkedFromURI: (item?["linked_from"] as? [String: Any])?["uri"] as? String)
+            linkedFromURI: (item?["linked_from"] as? [String: Any])?["uri"] as? String,
+            itemName: item?["name"] as? String)
     }
 
     /// GET /me → display_name (falls back to the account id).
